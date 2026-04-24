@@ -8,6 +8,14 @@ import os
 import re
 from typing import Any, Protocol
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
+
 
 class LLMBackend(Protocol):
     """Minimal backend contract used by role agents."""
