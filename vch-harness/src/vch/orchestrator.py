@@ -41,14 +41,27 @@ class HarnessOrchestrator:
     4. Final QA
     """
 
-    def __init__(self, repo_root: str, max_sprints: int = 3, max_repair_attempts: int = 3):
+    def __init__(
+        self,
+        repo_root: str,
+        max_sprints: int = 3,
+        max_repair_attempts: int = 3,
+        llm_backend: str = "deterministic",
+        llm_model: str = "gpt-4.1",
+    ):
         self.repo_root = Path(repo_root)
         self.max_sprints = max_sprints
         self.max_repair_attempts = max_repair_attempts
+        self.llm_backend = llm_backend
+        self.llm_model = llm_model
 
         # Initialize components
         self.initializer = Initializer(str(self.repo_root))
-        self.planner = Planner(str(self.repo_root))
+        self.planner = Planner(
+            str(self.repo_root),
+            llm_backend_name=llm_backend,
+            model=llm_model,
+        )
         self.generator = Generator(str(self.repo_root))
         self.evaluator = Evaluator(str(self.repo_root))
         self.qa = QA(str(self.repo_root))

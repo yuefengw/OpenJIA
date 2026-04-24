@@ -1,0 +1,92 @@
+{
+  "project_goal": "Add a minimal observable smoke harness that demonstrates planner output, contract-ready acceptance criteria, and command evidence tracking",
+  "non_goals": [
+    "Full test coverage of all planner features",
+    "Integration with external CI/CD systems",
+    "Persistent storage of evidence artifacts"
+  ],
+  "assumptions": [
+    "Planner output is JSON-serializable",
+    "Command evidence can be captured via shell redirection or structured logging",
+    "Smoke tests run in an isolated environment"
+  ],
+  "features": [
+    {
+      "id": "F001",
+      "title": "Observable Smoke Harness",
+      "user_value": "Demonstrates that the VCH Planner produces verifiable, contract-ready output with traceable evidence",
+      "dependencies": [],
+      "risk": "low",
+      "estimated_files": [
+        "tests/smoke/test_harness.py",
+        "tests/smoke/test_data/sample_task.json",
+        "tests/smoke/expected_output.json"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC001",
+          "description": "Smoke harness executes and produces JSON output conforming to FEATURE_SPEC schema",
+          "verification_type": "integration",
+          "oracle": "Output JSON contains required fields: project_goal, features array with id/title/user_value, sprints array with id/goal",
+          "required_evidence": [
+            "test_output",
+            "trace"
+          ]
+        },
+        {
+          "id": "AC002",
+          "description": "All acceptance criteria within produced output have verification_type, oracle, and required_evidence fields",
+          "verification_type": "static_check",
+          "oracle": "Every AcceptanceCriterion object contains all three required fields with non-empty values",
+          "required_evidence": [
+            "test_output"
+          ]
+        },
+        {
+          "id": "AC003",
+          "description": "Smoke harness command execution is captured with timestamp and exit code",
+          "verification_type": "log",
+          "oracle": "Evidence log contains command, timestamp, exit_code, and stdout/stderr for each verification command",
+          "required_evidence": [
+            "log"
+          ]
+        },
+        {
+          "id": "AC004",
+          "description": "Verification commands are documented and runnable",
+          "verification_type": "integration",
+          "oracle": "All sprint verification_commands execute successfully with exit code 0",
+          "required_evidence": [
+            "test_output"
+          ]
+        }
+      ],
+      "definition_of_done": [
+        "Smoke test passes all acceptance criteria",
+        "Evidence log is generated in machine-readable format",
+        "No modification to production planner code"
+      ]
+    }
+  ],
+  "sprints": [
+    {
+      "id": "S001",
+      "goal": "Create minimal smoke harness that demonstrates planner output structure with contract-ready acceptance criteria and command evidence tracking",
+      "features": [
+        "F001"
+      ],
+      "max_files_to_touch": 4,
+      "must_not_touch": [
+        "src/**/*.py",
+        "lib/**/*.py",
+        "**/planner*.py"
+      ],
+      "verification_commands": [
+        "python -m pytest tests/smoke/test_harness.py -v --tb=short",
+        "python -c \"import json; spec=json.load(open('tests/smoke/output/feature_spec.json')); assert 'project_goal' in spec and 'features' in spec and 'sprints' in spec\"",
+        "python -c \"import json; spec=json.load(open('tests/smoke/output/feature_spec.json')); acs=[ac for f in spec['features'] for ac in f.get('acceptance_criteria',[])]; assert all(all(k in ac for k in ['verification_type','oracle','required_evidence']) for ac in acs)\""
+      ],
+      "rollback_strategy": "Remove created test files and restore any modified files via git checkout"
+    }
+  ]
+}

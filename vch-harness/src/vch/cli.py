@@ -42,7 +42,17 @@ def init(repo: str, max_sprints: int, max_repair_attempts: int):
 @click.option("--max-sprints", default=3, help="Maximum number of sprints")
 @click.option("--max-repair-attempts", default=3, help="Maximum repair attempts per sprint")
 @click.option("--run-id", default=None, help="Continue existing run")
-def plan(task: str, repo: str, max_sprints: int, max_repair_attempts: int, run_id: str):
+@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible")
+@click.option("--model", default="gpt-4.1", help="LLM model name when using an LLM backend")
+def plan(
+    task: str,
+    repo: str,
+    max_sprints: int,
+    max_repair_attempts: int,
+    run_id: str,
+    llm_backend: str,
+    model: str,
+):
     """Generate feature spec and roadmap for a task."""
     from vch.agents.planner import Planner
     from vch.gates.plan_feasibility import PlanFeasibilityGate
@@ -55,7 +65,7 @@ def plan(task: str, repo: str, max_sprints: int, max_repair_attempts: int, run_i
         click.echo("Error: VCH not initialized. Run 'vch init' first.", err=True)
         sys.exit(1)
 
-    planner = Planner(str(repo_path))
+    planner = Planner(str(repo_path), llm_backend_name=llm_backend, model=model)
     spec = planner.invoke(task)
 
     # Run feasibility gate
@@ -77,14 +87,25 @@ def plan(task: str, repo: str, max_sprints: int, max_repair_attempts: int, run_i
 @click.argument("repo", default=".")
 @click.option("--max-sprints", default=3, help="Maximum number of sprints")
 @click.option("--max-repair-attempts", default=3, help="Maximum repair attempts per sprint")
-def run(task: str, repo: str, max_sprints: int, max_repair_attempts: int):
+@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible")
+@click.option("--model", default="gpt-4.1", help="LLM model name when using an LLM backend")
+def run(
+    task: str,
+    repo: str,
+    max_sprints: int,
+    max_repair_attempts: int,
+    llm_backend: str,
+    model: str,
+):
     """Run VCH harness for a task."""
     repo_path = Path(repo).absolute()
 
     orchestrator = HarnessOrchestrator(
         repo_root=str(repo_path),
         max_sprints=max_sprints,
-        max_repair_attempts=max_repair_attempts
+        max_repair_attempts=max_repair_attempts,
+        llm_backend=llm_backend,
+        llm_model=model,
     )
 
     run_state = orchestrator.run(task)
@@ -143,6 +164,39 @@ def run_sprint(sprint_id: str, repo: str):
         "use 'vch run' for the current deterministic MVP."
     )
     sys.exit(2)
+
+
+@main.command("llm-smoke")
+@click.option("--llm-backend", default="minimax", help="LLM backend: openai|minimax|openai-compatible")
+@click.option("--model", default=None, help="LLM model name")
+def llm_smoke(llm_backend: str, model: str):
+    """Run a small JSON-only LLM connectivity check."""
+    from vch.llm import LLMConfigurationError, make_llm_backend
+
+    try:
+        backend = make_llm_backend(llm_backend, model)
+        if backend is None:
+            click.echo("Error: deterministic backend does not call an LLM.", err=True)
+            sys.exit(1)
+        result = backend.generate_json(
+            instructions="Return valid JSON only.",
+            prompt="Return a JSON object with ok=true and provider='vch'.",
+            schema={
+                "title": "vch_smoke_test",
+                "type": "object",
+                "properties": {
+                    "ok": {"type": "boolean"},
+                    "provider": {"type": "string"},
+                },
+                "required": ["ok", "provider"],
+                "additionalProperties": True,
+            },
+        )
+    except (LLMConfigurationError, ValueError) as error:
+        click.echo(f"LLM smoke test failed: {error}", err=True)
+        sys.exit(1)
+
+    click.echo(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 @main.command()

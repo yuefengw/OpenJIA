@@ -6,6 +6,7 @@ import json
 
 from vch.schemas.feature_spec import FeatureSpec
 from vch.feature_ledger import build_ledger_from_spec, save_ledger, write_progress_markdown
+from vch.llm import LLMBackend, LLMConfigurationError, make_llm_backend
 
 
 class Planner:
@@ -24,8 +25,17 @@ class Planner:
     - ROADMAP.md
     """
 
-    def __init__(self, repo_root: str):
+    def __init__(
+        self,
+        repo_root: str,
+        llm_backend: Optional[LLMBackend] = None,
+        llm_backend_name: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         self.repo_root = Path(repo_root)
+        self.llm_backend = llm_backend
+        if self.llm_backend is None and llm_backend_name:
+            self.llm_backend = make_llm_backend(llm_backend_name, model)
 
     def invoke(
         self,
@@ -64,9 +74,16 @@ class Planner:
         if constraints_path and Path(constraints_path).exists():
             constraints = Path(constraints_path).read_text()
 
-        # In a real implementation, this would call a DeepAgent
-        # For now, generate a placeholder spec
-        spec = self._generate_placeholder_spec(user_task)
+        try:
+            spec = self._generate_llm_spec(
+                user_task=user_task,
+                env_report=env_report,
+                repo_map=repo_map,
+                constraints=constraints,
+            ) if self.llm_backend else self._generate_placeholder_spec(user_task)
+        except (LLMConfigurationError, ValueError, json.JSONDecodeError) as error:
+            spec = self._generate_placeholder_spec(user_task)
+            spec.assumptions.append(f"LLM planner failed; deterministic fallback used: {error}")
 
         # Save the spec
         harness_dir = self.repo_root / ".harness"
@@ -76,6 +93,31 @@ class Planner:
         self._save_feature_ledger(spec, harness_dir)
 
         return spec
+
+    def _generate_llm_spec(
+        self,
+        *,
+        user_task: str,
+        env_report: str,
+        repo_map: str,
+        constraints: str,
+    ) -> FeatureSpec:
+        """Generate a feature spec with an LLM backend."""
+        assert self.llm_backend is not None
+        instructions = self._load_prompt("planner.md")
+        prompt = "\n\n".join([
+            f"USER_TASK:\n{user_task}",
+            f"ENV_REPORT.md:\n{env_report or '[missing]'}",
+            f"REPO_MAP.md:\n{repo_map or '[missing]'}",
+            f"GLOBAL_CONSTRAINTS.md:\n{constraints or '[missing]'}",
+            "Return only JSON matching the provided FEATURE_SPEC schema.",
+        ])
+        data = self.llm_backend.generate_json(
+            instructions=instructions,
+            prompt=prompt,
+            schema=FeatureSpec.model_json_schema(),
+        )
+        return FeatureSpec(**data)
 
     def _generate_placeholder_spec(self, user_task: str) -> FeatureSpec:
         """Generate a conservative deterministic feature spec."""
@@ -177,6 +219,13 @@ class Planner:
         """Create a compact sprint/feature title."""
         clean = " ".join(user_task.strip().split())
         return clean[:80] or "Implement requested change"
+
+    def _load_prompt(self, name: str) -> str:
+        """Load a role prompt."""
+        prompt_path = Path(__file__).parents[1] / "prompts" / name
+        if prompt_path.exists():
+            return prompt_path.read_text()
+        return "You are the VCH Planner. Return valid FEATURE_SPEC JSON."
 
     def _save_feature_spec(self, spec: FeatureSpec, harness_dir: Path) -> str:
         """Save feature spec to JSON."""
