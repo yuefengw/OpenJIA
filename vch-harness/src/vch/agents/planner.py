@@ -160,7 +160,7 @@ class Planner:
                     "id": "S001",
                     "goal": self._title_from_task(user_task),
                     "features": ["F001"],
-                    "max_files_to_touch": min(max(len(estimated_files), 1), 6),
+                    "max_files_to_touch": min(max(len(estimated_files), 1), 8),
                     "must_not_touch": [
                         ".git/**",
                         ".harness/logs/**",
@@ -195,18 +195,31 @@ class Planner:
     def _detect_extension_points(self) -> list[str]:
         """Pick narrow candidate files for the fallback sprint contract."""
         candidates = []
+        for path in [
+            "package.json",
+            "index.html",
+            "src/app.js",
+            "src/styles.css",
+            "scripts/validate-app.mjs",
+        ]:
+            if (self.repo_root / path).exists():
+                candidates.append(path)
+
         for pattern in [
+            "scripts/*.mjs",
             "src/**/*.ts",
             "src/**/*.tsx",
             "src/**/*.js",
             "src/**/*.jsx",
+            "src/**/*.css",
             "src/**/*.py",
             "*.py",
         ]:
             for path in self.repo_root.glob(pattern):
-                if path.is_file():
-                    candidates.append(path.relative_to(self.repo_root).as_posix())
-                if len(candidates) >= 4:
+                relative = path.relative_to(self.repo_root).as_posix()
+                if path.is_file() and relative not in candidates:
+                    candidates.append(relative)
+                if len(candidates) >= 8:
                     return candidates
 
         if (self.repo_root / "package.json").exists():

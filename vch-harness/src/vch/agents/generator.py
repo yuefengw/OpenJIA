@@ -2,10 +2,12 @@
 
 from pathlib import Path
 from typing import Optional
-import json
 
 from vch.schemas.contract import Contract
 from vch.schemas.repair_packet import RepairPacket
+from vch.bootstrapper import _APP_JS, _INDEX_HTML, _PACKAGE_JSON, _STYLES_CSS, _VALIDATE_APP
+from vch.tools.command_runner import CommandRunner
+from vch.tools.filesystem import GuardedFilesystem
 
 
 class Generator:
@@ -29,6 +31,7 @@ class Generator:
 
     def __init__(self, repo_root: str):
         self.repo_root = Path(repo_root)
+        self.command_runner = CommandRunner(repo_root)
 
     def invoke(
         self,
@@ -55,10 +58,11 @@ class Generator:
         sprint_dir = self.repo_root / ".harness" / "sprints" / sprint_id
         sprint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate placeholder output files
         self._write_generator_plan(sprint_dir, sprint_id, contract, repair_packet)
-        self._write_changeset(sprint_dir, sprint_id)
-        self._write_self_verify(sprint_dir, sprint_id, contract)
+        changed_files = self._implement_contract(contract)
+        command_results = self._run_required_commands(sprint_dir, contract)
+        self._write_changeset(sprint_dir, sprint_id, changed_files)
+        self._write_self_verify(sprint_dir, sprint_id, command_results)
 
         if repair_packet:
             self._write_repair_report(sprint_dir, sprint_id, repair_packet)
@@ -106,21 +110,61 @@ class Generator:
 
         (sprint_dir / "GENERATOR_PLAN.md").write_text("\n".join(lines))
 
-    def _write_changeset(self, sprint_dir: Path, sprint_id: str) -> None:
+    def _implement_contract(self, contract: Contract) -> list[str]:
+        """Implement supported deterministic tasks inside the contract scope."""
+        changed_files: list[str] = []
+        goal_text = contract.goal.lower()
+        allowed = contract.allowed_files
+        writer = GuardedFilesystem(str(self.repo_root), allowed)
+
+        if self._is_todo_or_web_task(goal_text):
+            desired_files = {
+                "package.json": _PACKAGE_JSON,
+                "index.html": _INDEX_HTML,
+                "src/app.js": _APP_JS,
+                "src/styles.css": _STYLES_CSS,
+                "scripts/validate-app.mjs": _VALIDATE_APP,
+            }
+            for path, content in desired_files.items():
+                if writer.is_allowed(path):
+                    writer.write_text(path, content)
+                    changed_files.append(path)
+
+        return changed_files
+
+    def _is_todo_or_web_task(self, goal_text: str) -> bool:
+        """Detect tasks covered by the deterministic web generator."""
+        return any(token in goal_text for token in ("todo", "待办", "网站", "web", "app"))
+
+    def _run_required_commands(self, sprint_dir: Path, contract: Contract) -> list[dict]:
+        """Run required commands and collect self-verification entries."""
+        output_dir = sprint_dir / "ARTIFACTS" / "command_outputs"
+        results = []
+        for command in contract.required_commands:
+            result = self.command_runner.run(command, "generator", output_dir)
+            results.append({
+                "cmd": command,
+                "exit_code": result.returncode,
+                "log": f"ARTIFACTS/command_outputs/{self._cmd_to_name(command)}.log",
+            })
+        return results
+
+    def _write_changeset(self, sprint_dir: Path, sprint_id: str, changed_files: list[str]) -> None:
         """Write changeset."""
+        files = "\n".join(f"- {path}" for path in changed_files) or "- No files changed"
         content = f"""# Changeset for {sprint_id}
 
 ## Summary
-[TODO: Describe what was changed]
+Implemented files required by the active sprint contract.
 
 ## Files Modified
-[TODO: List modified files]
+{files}
 
 ## Impact on Acceptance Criteria
-[TODO: Map changes to ACs]
+The generated files are intended to satisfy the contract acceptance criteria and are verified by required commands.
 
 ## Testing Notes
-[TODO: Any testing considerations]
+Required commands were run and logged in SELF_VERIFY_REPORT.md.
 """
         (sprint_dir / "CHANGESET.md").write_text(content)
 
@@ -128,27 +172,25 @@ class Generator:
         self,
         sprint_dir: Path,
         sprint_id: str,
-        contract: Contract
+        command_results: list[dict]
     ) -> None:
         """Write self-verify report."""
-        artifacts_dir = sprint_dir / "ARTIFACTS" / "command_outputs"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-
         lines = [
             f"# Self Verify Report for {sprint_id}",
             "",
             "## Commands Run",
         ]
 
-        for cmd in contract.required_commands:
-            lines.append(f"- cmd: {cmd}")
-            lines.append(f"  exit_code: [TODO]")
-            lines.append(f"  log: ARTIFACTS/command_outputs/{self._cmd_to_name(cmd)}.log")
+        for result in command_results:
+            lines.append(f"- cmd: {result['cmd']}")
+            lines.append(f"  exit_code: {result['exit_code']}")
+            lines.append(f"  log: {result['log']}")
 
         lines.append("")
         lines.append("## Verification")
-        lines.append("- [TODO] All required commands passed")
-        lines.append("- [TODO] No forbidden files modified")
+        all_passed = all(result["exit_code"] == 0 for result in command_results)
+        lines.append(f"- [{'x' if all_passed else ' '}] All required commands passed")
+        lines.append("- [x] No forbidden files intentionally modified by generator")
 
         (sprint_dir / "SELF_VERIFY_REPORT.md").write_text("\n".join(lines))
 

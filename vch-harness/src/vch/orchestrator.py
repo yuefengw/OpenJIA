@@ -25,6 +25,7 @@ from vch.gates.self_verify import SelfVerifyGate
 
 from vch.context.curator import ContextCurator
 from vch.context.manifest import ContextManifest
+from vch.bootstrapper import ProjectBootstrapper
 
 import yaml
 from vch.feature_ledger import load_ledger, save_ledger, update_ledger_from_eval, write_progress_markdown
@@ -74,6 +75,7 @@ class HarnessOrchestrator:
 
         # Initialize context
         self.context_curator = ContextCurator()
+        self.bootstrapper = ProjectBootstrapper(str(self.repo_root))
 
         # State
         self.run_state: Optional[RunState] = None
@@ -90,6 +92,10 @@ class HarnessOrchestrator:
             Final RunState
         """
         harness_dir = self.repo_root / ".harness"
+
+        bootstrapped = self.bootstrapper.maybe_bootstrap(user_task)
+        if bootstrapped:
+            print("Bootstrapped a minimal static web project.")
 
         # Phase 0: Initialize
         print("=== Phase 0: Initialization ===")

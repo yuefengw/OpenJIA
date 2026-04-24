@@ -3,7 +3,6 @@
 from pathlib import Path
 from datetime import datetime
 import json
-import shlex
 import subprocess
 
 
@@ -17,20 +16,19 @@ class CommandRunner:
         """Run a command, save output, and append the command ledger."""
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / f"{self._cmd_to_name(cmd)}.log"
-        parts = shlex.split(cmd)
-
         try:
             result = subprocess.run(
-                parts,
+                cmd,
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                shell=True,
             )
         except subprocess.TimeoutExpired:
-            result = subprocess.CompletedProcess(args=parts, returncode=-1, stdout="", stderr="TIMEOUT")
+            result = subprocess.CompletedProcess(args=cmd, returncode=-1, stdout="", stderr="TIMEOUT")
         except Exception as error:
-            result = subprocess.CompletedProcess(args=parts, returncode=-1, stdout="", stderr=str(error))
+            result = subprocess.CompletedProcess(args=cmd, returncode=-1, stdout="", stderr=str(error))
 
         log_path.write_text(
             "\n".join([
