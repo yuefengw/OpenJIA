@@ -5,7 +5,15 @@ from typing import Optional
 
 from vch.schemas.contract import Contract
 from vch.schemas.repair_packet import RepairPacket
-from vch.bootstrapper import _APP_JS, _INDEX_HTML, _PACKAGE_JSON, _STYLES_CSS, _VALIDATE_APP
+from vch.bootstrapper import (
+    _APP_JS,
+    _INDEX_HTML,
+    _PACKAGE_JSON,
+    _PLAYWRIGHT_CONFIG,
+    _STYLES_CSS,
+    _TODO_SPEC,
+    _VALIDATE_APP,
+)
 from vch.tools.command_runner import CommandRunner
 from vch.tools.filesystem import GuardedFilesystem
 
@@ -121,9 +129,11 @@ class Generator:
             desired_files = {
                 "package.json": _PACKAGE_JSON,
                 "index.html": _INDEX_HTML,
+                "playwright.config.mjs": _PLAYWRIGHT_CONFIG,
                 "src/app.js": _APP_JS,
                 "src/styles.css": _STYLES_CSS,
                 "scripts/validate-app.mjs": _VALIDATE_APP,
+                "tests/todo.spec.mjs": _TODO_SPEC,
             }
             for path, content in desired_files.items():
                 if writer.is_allowed(path):

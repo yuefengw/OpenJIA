@@ -22,10 +22,11 @@ What works now:
 - Empty simple web tasks can bootstrap a dependency-light static web app.
 - Deterministic Generator can create a runnable Todo List app inside contract scope.
 - Generator now runs required commands and writes real self-verification logs.
+- Playwright E2E now opens the generated Todo app in Chrome and verifies add, complete, delete, and refresh persistence behavior.
+- Evaluator collects Playwright screenshot artifacts such as `test-results/todo-pass.png`.
 
 What does not yet work:
 
-- Evaluator does not yet run browser checks, inspect UI state, or verify app-specific behavior.
 - LLM Generator is not implemented yet; current real generation path is deterministic for simple web/Todo tasks.
 - Repair loop does not persist repeated failure fingerprints or perform root-cause escalation.
 - `vch run` can create and verify the first static Todo app path, but does not yet start a persistent dev server or print a final URL.

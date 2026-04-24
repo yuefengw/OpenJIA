@@ -36,9 +36,11 @@ class ProjectBootstrapper:
         files = {
             "package.json": _PACKAGE_JSON,
             "index.html": _INDEX_HTML,
+            "playwright.config.mjs": _PLAYWRIGHT_CONFIG,
             "src/app.js": _APP_JS,
             "src/styles.css": _STYLES_CSS,
             "scripts/validate-app.mjs": _VALIDATE_APP,
+            "tests/todo.spec.mjs": _TODO_SPEC,
         }
         for path, content in files.items():
             target = self.repo_root / path
@@ -59,9 +61,11 @@ class ProjectBootstrapper:
                 "## Files",
                 "- package.json",
                 "- index.html",
+                "- playwright.config.mjs",
                 "- src/app.js",
                 "- src/styles.css",
                 "- scripts/validate-app.mjs",
+                "- tests/todo.spec.mjs",
             ]),
             encoding="utf-8",
         )
@@ -75,13 +79,14 @@ _PACKAGE_JSON = """{
   "scripts": {
     "dev": "python -m http.server 5173",
     "build": "node scripts/validate-app.mjs",
-    "test": "node scripts/validate-app.mjs"
+    "test": "node scripts/validate-app.mjs",
+    "test:e2e": "npm install --no-save @playwright/test && npx playwright test"
   }
 }
 """
 
 _INDEX_HTML = """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -96,11 +101,11 @@ _INDEX_HTML = """<!doctype html>
           <h1 id="app-title">Todo List</h1>
         </header>
         <form id="todo-form" class="todo-form">
-          <input id="todo-input" type="text" autocomplete="off" placeholder="添加一个待办事项" />
-          <button type="submit">添加</button>
+          <input id="todo-input" type="text" autocomplete="off" placeholder="Add a todo item" />
+          <button type="submit">Add</button>
         </form>
-        <ul id="todo-list" class="todo-list" aria-label="待办列表"></ul>
-        <p id="empty-state" class="empty-state">还没有待办事项。</p>
+        <ul id="todo-list" class="todo-list" aria-label="Todo list"></ul>
+        <p id="empty-state" class="empty-state">No todo items yet.</p>
       </section>
     </main>
     <script type="module" src="src/app.js"></script>
@@ -140,8 +145,8 @@ function render() {
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'todo-toggle';
-    toggle.setAttribute('aria-label', todo.completed ? '标记为未完成' : '标记为完成');
-    toggle.textContent = todo.completed ? '✓' : '';
+    toggle.setAttribute('aria-label', todo.completed ? 'Mark as incomplete' : 'Mark as complete');
+    toggle.textContent = todo.completed ? 'Done' : '';
     toggle.addEventListener('click', () => {
       todos = todos.map((entry) =>
         entry.id === todo.id ? { ...entry, completed: !entry.completed } : entry
@@ -157,7 +162,7 @@ function render() {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'todo-remove';
-    remove.textContent = '删除';
+    remove.textContent = 'Delete';
     remove.addEventListener('click', () => {
       todos = todos.filter((entry) => entry.id !== todo.id);
       saveTodos(todos);
@@ -275,7 +280,7 @@ button {
 }
 
 .todo-toggle {
-  width: 34px;
+  width: 64px;
   min-height: 34px;
   padding: 0;
   background: #e6f2ee;
@@ -310,13 +315,14 @@ button {
 
 _VALIDATE_APP = """import { readFileSync } from 'node:fs';
 
-const requiredFiles = ['index.html', 'src/app.js', 'src/styles.css'];
+const requiredFiles = ['index.html', 'src/app.js', 'src/styles.css', 'playwright.config.mjs', 'tests/todo.spec.mjs'];
 for (const file of requiredFiles) {
   readFileSync(file, 'utf8');
 }
 
 const html = readFileSync('index.html', 'utf8');
 const js = readFileSync('src/app.js', 'utf8');
+const spec = readFileSync('tests/todo.spec.mjs', 'utf8');
 
 const checks = [
   ['title', html.includes('Todo List')],
@@ -326,6 +332,8 @@ const checks = [
   ['add handler', js.includes("addEventListener('submit'")],
   ['toggle behavior', js.includes('completed: !entry.completed')],
   ['delete behavior', js.includes('todos.filter')],
+  ['playwright add assertion', spec.includes("getByRole('button', { name: 'Add' })")],
+  ['playwright persistence assertion', spec.includes('page.reload()')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok);
@@ -335,4 +343,54 @@ if (failed.length > 0) {
 }
 
 console.log('Static Todo app validation passed.');
+"""
+
+_PLAYWRIGHT_CONFIG = """import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests',
+  timeout: 30000,
+  use: {
+    baseURL: 'http://127.0.0.1:5173',
+    channel: 'chrome',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
+  webServer: {
+    command: 'python -m http.server 5173',
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: false,
+    timeout: 15000,
+  },
+});
+"""
+
+_TODO_SPEC = """import { test, expect } from '@playwright/test';
+
+test('todo list supports add, complete, delete, and persistence', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  await expect(page.getByText('No todo items yet.')).toBeVisible();
+
+  await page.getByPlaceholder('Add a todo item').fill('Write harness tests');
+  await page.getByRole('button', { name: 'Add' }).click();
+
+  const item = page.locator('.todo-item').filter({ hasText: 'Write harness tests' });
+  await expect(item).toBeVisible();
+
+  await item.getByRole('button', { name: 'Mark as complete' }).click();
+  await expect(item).toHaveClass(/is-complete/);
+
+  await page.reload();
+  const persisted = page.locator('.todo-item').filter({ hasText: 'Write harness tests' });
+  await expect(persisted).toBeVisible();
+  await expect(persisted).toHaveClass(/is-complete/);
+
+  await persisted.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.locator('.todo-item')).toHaveCount(0);
+  await expect(page.getByText('No todo items yet.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/todo-pass.png', fullPage: true });
+});
 """

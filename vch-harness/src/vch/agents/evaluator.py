@@ -74,18 +74,20 @@ class Evaluator:
 
         # Generate criterion results
         criteria = []
+        artifact_evidence = self._collect_artifact_evidence()
         for ac in contract.acceptance_criteria:
             evidence = [
                 str(command_outputs / f"{self._cmd_to_name(command.cmd)}.log")
                 for command in commands_run
                 if command.log_path
             ]
+            evidence.extend(artifact_evidence)
             criteria.append(CriterionResult(
                 id=ac.id,
                 status="pass" if all_passed else "fail",
                 failure_type=None if all_passed else self._failure_type(commands_run, diff_scope_passed),
                 evidence=evidence,
-                observed="[TODO: Run actual verification]",
+                observed=self._observed_summary(commands_run, diff_scope_passed, artifact_evidence),
                 expected=ac.behavior if hasattr(ac, 'behavior') else "See contract",
                 likely_location=[],
                 minimal_reproduction=[],
@@ -162,6 +164,32 @@ class Evaluator:
         if any(command.exit_code != 0 for command in commands_run):
             return "implementation_bug"
         return "unknown"
+
+    def _collect_artifact_evidence(self) -> list[str]:
+        """Collect generated browser/test artifacts when present."""
+        evidence = []
+        for root in ("test-results", "playwright-report"):
+            path = self.repo_root / root
+            if not path.exists():
+                continue
+            for file in path.rglob("*"):
+                if file.is_file():
+                    evidence.append(str(file))
+        return evidence
+
+    def _observed_summary(
+        self,
+        commands_run: list[CommandsRun],
+        diff_scope_passed: bool,
+        artifact_evidence: list[str],
+    ) -> str:
+        """Summarize evaluator observations."""
+        command_summary = ", ".join(
+            f"{command.cmd} exited {command.exit_code}" for command in commands_run
+        )
+        artifact_summary = f"; collected {len(artifact_evidence)} test artifacts" if artifact_evidence else ""
+        scope_summary = "diff scope passed" if diff_scope_passed else "diff scope failed"
+        return f"{command_summary}; {scope_summary}{artifact_summary}"
 
     def _cmd_to_name(self, cmd: str) -> str:
         """Convert command to file name."""

@@ -22,6 +22,8 @@ class CommandRunner:
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 shell=True,
             )
@@ -40,7 +42,9 @@ class CommandRunner:
                 "",
                 "--- STDERR ---",
                 result.stderr or "",
-            ])
+            ]),
+            encoding="utf-8",
+            errors="replace",
         )
         self._append_command_record(cmd, phase, result.returncode, log_path)
         return result

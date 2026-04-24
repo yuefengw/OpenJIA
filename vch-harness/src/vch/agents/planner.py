@@ -121,7 +121,8 @@ class Planner:
 
     def _generate_placeholder_spec(self, user_task: str) -> FeatureSpec:
         """Generate a conservative deterministic feature spec."""
-        command = self._detect_verification_command()
+        commands = self._detect_verification_commands()
+        command = commands[0]
         estimated_files = self._detect_extension_points()
 
         return FeatureSpec(
@@ -166,31 +167,34 @@ class Planner:
                         ".harness/logs/**",
                         ".harness/RUN_STATE.json",
                     ],
-                    "verification_commands": [command],
+                    "verification_commands": commands,
                     "rollback_strategy": "Revert files modified for this sprint and keep .harness evidence for review.",
                 }
             ],
         )
 
-    def _detect_verification_command(self) -> str:
-        """Choose a likely verification command for deterministic mode."""
+    def _detect_verification_commands(self) -> list[str]:
+        """Choose likely verification commands for deterministic mode."""
         package_json = self.repo_root / "package.json"
         if package_json.exists():
             try:
                 package = json.loads(package_json.read_text())
             except json.JSONDecodeError:
-                return "npm test"
+                return ["npm test"]
             scripts = package.get("scripts", {})
+            commands = []
             if "test" in scripts:
-                return "npm test"
+                commands.append("npm test")
             if "build" in scripts:
-                return "npm run build"
-            return "npm install"
+                commands.append("npm run build")
+            if "test:e2e" in scripts:
+                commands.append("npm run test:e2e")
+            return commands or ["npm install"]
 
         if (self.repo_root / "pyproject.toml").exists():
-            return "python -m compileall ."
+            return ["python -m compileall ."]
 
-        return "python -m compileall ."
+        return ["python -m compileall ."]
 
     def _detect_extension_points(self) -> list[str]:
         """Pick narrow candidate files for the fallback sprint contract."""
@@ -198,15 +202,18 @@ class Planner:
         for path in [
             "package.json",
             "index.html",
+            "playwright.config.mjs",
             "src/app.js",
             "src/styles.css",
             "scripts/validate-app.mjs",
+            "tests/todo.spec.mjs",
         ]:
             if (self.repo_root / path).exists():
                 candidates.append(path)
 
         for pattern in [
             "scripts/*.mjs",
+            "tests/*.mjs",
             "src/**/*.ts",
             "src/**/*.tsx",
             "src/**/*.js",
