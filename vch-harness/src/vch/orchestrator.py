@@ -63,7 +63,11 @@ class HarnessOrchestrator:
             llm_backend_name=llm_backend,
             model=llm_model,
         )
-        self.generator = Generator(str(self.repo_root))
+        self.generator = Generator(
+            str(self.repo_root),
+            llm_backend_name=llm_backend,
+            model=llm_model,
+        )
         self.evaluator = Evaluator(str(self.repo_root))
         self.qa = QA(str(self.repo_root))
 

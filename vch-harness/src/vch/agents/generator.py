@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Optional
+import json
 
 from vch.schemas.contract import Contract
 from vch.schemas.repair_packet import RepairPacket
@@ -16,6 +17,7 @@ from vch.bootstrapper import (
 )
 from vch.tools.command_runner import CommandRunner
 from vch.tools.filesystem import GuardedFilesystem
+from vch.llm import LLMBackend, LLMConfigurationError, make_llm_backend
 
 
 class Generator:
@@ -37,9 +39,18 @@ class Generator:
     - REPAIR_REPORT.md (if repair)
     """
 
-    def __init__(self, repo_root: str):
+    def __init__(
+        self,
+        repo_root: str,
+        llm_backend: Optional[LLMBackend] = None,
+        llm_backend_name: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         self.repo_root = Path(repo_root)
         self.command_runner = CommandRunner(repo_root)
+        self.llm_backend = llm_backend
+        if self.llm_backend is None and llm_backend_name:
+            self.llm_backend = make_llm_backend(llm_backend_name, model)
 
     def invoke(
         self,
@@ -67,7 +78,7 @@ class Generator:
         sprint_dir.mkdir(parents=True, exist_ok=True)
 
         self._write_generator_plan(sprint_dir, sprint_id, contract, repair_packet)
-        changed_files = self._implement_contract(contract)
+        changed_files = self._implement_contract(contract, manifest, repair_packet)
         command_results = self._run_required_commands(sprint_dir, contract)
         self._write_changeset(sprint_dir, sprint_id, changed_files)
         self._write_self_verify(sprint_dir, sprint_id, command_results)
@@ -118,8 +129,21 @@ class Generator:
 
         (sprint_dir / "GENERATOR_PLAN.md").write_text("\n".join(lines))
 
-    def _implement_contract(self, contract: Contract) -> list[str]:
+    def _implement_contract(
+        self,
+        contract: Contract,
+        manifest: Optional[dict],
+        repair_packet: Optional[RepairPacket],
+    ) -> list[str]:
         """Implement supported deterministic tasks inside the contract scope."""
+        if self.llm_backend:
+            try:
+                changed_files = self._implement_with_llm(contract, manifest, repair_packet)
+                if changed_files:
+                    return changed_files
+            except (LLMConfigurationError, ValueError, json.JSONDecodeError, PermissionError) as error:
+                self._write_generator_error(contract.sprint_id, error)
+
         changed_files: list[str] = []
         goal_text = contract.goal.lower()
         allowed = contract.allowed_files
@@ -141,6 +165,73 @@ class Generator:
                     changed_files.append(path)
 
         return changed_files
+
+    def _implement_with_llm(
+        self,
+        contract: Contract,
+        manifest: Optional[dict],
+        repair_packet: Optional[RepairPacket],
+    ) -> list[str]:
+        """Ask an LLM backend for contract-scoped file contents and apply them safely."""
+        assert self.llm_backend is not None
+        writer = GuardedFilesystem(str(self.repo_root), contract.allowed_files)
+        prompt = self._build_llm_prompt(contract, manifest, repair_packet)
+        data = self.llm_backend.generate_json(
+            instructions=self._load_prompt("generator.md"),
+            prompt=prompt,
+            schema=_GENERATOR_OUTPUT_SCHEMA,
+        )
+
+        files = data.get("files", [])
+        if not isinstance(files, list):
+            raise ValueError("LLM generator output must include a files array.")
+
+        changed_files = []
+        for item in files:
+            path = item.get("path")
+            content = item.get("content")
+            if not path or not isinstance(content, str):
+                raise ValueError("Each generated file needs path and content.")
+            writer.write_text(path, content)
+            changed_files.append(path)
+
+        return changed_files
+
+    def _build_llm_prompt(
+        self,
+        contract: Contract,
+        manifest: Optional[dict],
+        repair_packet: Optional[RepairPacket],
+    ) -> str:
+        """Build the bounded generator prompt."""
+        existing_files = {}
+        for path in contract.allowed_files:
+            candidate = self.repo_root / path
+            if candidate.exists() and candidate.is_file():
+                existing_files[path] = candidate.read_text(encoding="utf-8", errors="replace")
+
+        packet = {
+            "contract": contract.model_dump(),
+            "context_manifest": manifest or {},
+            "existing_allowed_files": existing_files,
+            "repair_packet": repair_packet.model_dump() if repair_packet else None,
+            "rules": [
+                "Return complete file contents for files you want to create or modify.",
+                "Do not include files outside allowed_files.",
+                "Do not claim success; the evaluator decides pass or fail.",
+                "Prefer the smallest change that satisfies the contract.",
+            ],
+        }
+        return json.dumps(packet, ensure_ascii=False, indent=2)
+
+    def _write_generator_error(self, sprint_id: str, error: Exception) -> None:
+        """Persist LLM generator failure before falling back."""
+        sprint_dir = self.repo_root / ".harness" / "sprints" / sprint_id
+        sprint_dir.mkdir(parents=True, exist_ok=True)
+        (sprint_dir / "GENERATOR_ERROR.md").write_text(
+            f"# Generator Error\n\nLLM generator failed and deterministic fallback was used.\n\n```text\n{error}\n```\n",
+            encoding="utf-8",
+        )
 
     def _is_todo_or_web_task(self, goal_text: str) -> bool:
         """Detect tasks covered by the deterministic web generator."""
@@ -232,3 +323,33 @@ Required commands were run and logged in SELF_VERIFY_REPORT.md.
         import re
         name = re.sub(r'[^a-zA-Z0-9]', '_', cmd)
         return name[:50]
+
+    def _load_prompt(self, name: str) -> str:
+        """Load a role prompt."""
+        prompt_path = Path(__file__).parents[1] / "prompts" / name
+        if prompt_path.exists():
+            return prompt_path.read_text(encoding="utf-8", errors="replace")
+        return "You are the VCH Generator. Return valid JSON with contract-scoped files."
+
+
+_GENERATOR_OUTPUT_SCHEMA = {
+    "title": "vch_generator_output",
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "files"],
+    "additionalProperties": False,
+}
