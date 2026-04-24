@@ -287,6 +287,8 @@ class Initializer:
         files = {
             "RUN.md": f"# VCH Run\n\n## User Task\n{user_task or '[not provided]'}\n",
             "REQUIREMENTS.md": f"# Requirements\n\n{user_task or '[not provided]'}\n",
+            "FEATURE_LEDGER.json": '{\n  "project_goal": "",\n  "features": []\n}\n',
+            "PROGRESS.md": "# Progress\n\nNo feature spec has been generated yet.\n",
             "GLOBAL_CONSTRAINTS.md": (
                 "# Global Constraints\n\n"
                 "- Do not modify files outside the active sprint contract.\n"

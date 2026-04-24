@@ -1,12 +1,12 @@
 """Evaluator agent - independently verifies sprint completion."""
 
 from pathlib import Path
-from typing import Optional
-import json
 import subprocess
+import fnmatch
 
 from vch.schemas.contract import Contract
 from vch.schemas.eval_report import EvalReport, CriterionResult, CommandsRun, DiffScopeCheck, Logs
+from vch.tools.command_runner import CommandRunner
 
 
 class Evaluator:
@@ -23,6 +23,7 @@ class Evaluator:
 
     def __init__(self, repo_root: str):
         self.repo_root = Path(repo_root)
+        self.command_runner = CommandRunner(repo_root)
 
     def invoke(
         self,
@@ -57,27 +58,33 @@ class Evaluator:
 
         for cmd_str in contract.required_commands:
             result = self._run_command(cmd_str, command_outputs)
+            log_path = command_outputs / f"{self._cmd_to_name(cmd_str)}.log"
             commands_run.append(CommandsRun(
                 cmd=cmd_str,
                 exit_code=result.returncode,
-                log_path=str(command_outputs / f"{self._cmd_to_name(cmd_str)}.log")
+                log_path=str(log_path)
             ))
             if result.returncode != 0:
                 all_passed = False
 
         # Check diff scope
-        diff_scope_passed, unexpected = self._check_diff_scope(git_base, git_head)
+        diff_scope_passed, unexpected = self._check_diff_scope(git_base, git_head, contract)
         if not diff_scope_passed:
             all_passed = False
 
         # Generate criterion results
         criteria = []
         for ac in contract.acceptance_criteria:
+            evidence = [
+                str(command_outputs / f"{self._cmd_to_name(command.cmd)}.log")
+                for command in commands_run
+                if command.log_path
+            ]
             criteria.append(CriterionResult(
                 id=ac.id,
                 status="pass" if all_passed else "fail",
-                failure_type=None if all_passed else "unknown",
-                evidence=[],
+                failure_type=None if all_passed else self._failure_type(commands_run, diff_scope_passed),
+                evidence=evidence,
                 observed="[TODO: Run actual verification]",
                 expected=ac.behavior if hasattr(ac, 'behavior') else "See contract",
                 likely_location=[],
@@ -111,45 +118,13 @@ class Evaluator:
 
     def _run_command(self, cmd_str: str, output_dir: Path) -> subprocess.CompletedProcess:
         """Run a command and save output."""
-        import shlex
-
-        # Parse command
-        parts = shlex.split(cmd_str)
-
-        log_file = output_dir / f"{self._cmd_to_name(cmd_str)}.log"
-
-        try:
-            result = subprocess.run(
-                parts,
-                cwd=self.repo_root,
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            # Save output
-            with open(log_file, "w") as f:
-                f.write(f"Command: {cmd_str}\n")
-                f.write(f"Exit code: {result.returncode}\n")
-                f.write("\n--- STDOUT ---\n")
-                f.write(result.stdout)
-                f.write("\n--- STDERR ---\n")
-                f.write(result.stderr)
-            return result
-        except subprocess.TimeoutExpired:
-            with open(log_file, "w") as f:
-                f.write(f"Command: {cmd_str}\n")
-                f.write("TIMEOUT\n")
-            return subprocess.CompletedProcess(args=parts, returncode=-1)
-        except Exception as e:
-            with open(log_file, "w") as f:
-                f.write(f"Command: {cmd_str}\n")
-                f.write(f"ERROR: {e}\n")
-            return subprocess.CompletedProcess(args=parts, returncode=-1)
+        return self.command_runner.run(cmd_str, "evaluator", output_dir)
 
     def _check_diff_scope(
         self,
         git_base: str,
-        git_head: str
+        git_head: str,
+        contract: Contract
     ) -> tuple[bool, list[str]]:
         """Check if diff is within scope."""
         try:
@@ -165,10 +140,28 @@ class Evaluator:
             modified = result.stdout.strip().split("\n")
             modified = [f for f in modified if f]
 
-            # For now, allow all modifications
-            return True, []
+            unexpected = []
+            for path in modified:
+                if self._matches_any(path, contract.forbidden_files):
+                    unexpected.append(path)
+                    continue
+                if contract.allowed_files and not self._matches_any(path, contract.allowed_files):
+                    unexpected.append(path)
+            return len(unexpected) == 0, unexpected
         except Exception:
             return True, []
+
+    def _matches_any(self, path: str, patterns: list[str]) -> bool:
+        """Check whether a path matches any exact path or glob."""
+        return any(path == pattern or fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+    def _failure_type(self, commands_run: list[CommandsRun], diff_scope_passed: bool) -> str:
+        """Classify deterministic evaluator failures."""
+        if not diff_scope_passed:
+            return "implementation_bug"
+        if any(command.exit_code != 0 for command in commands_run):
+            return "implementation_bug"
+        return "unknown"
 
     def _cmd_to_name(self, cmd: str) -> str:
         """Convert command to file name."""

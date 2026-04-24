@@ -27,6 +27,7 @@ from vch.context.curator import ContextCurator
 from vch.context.manifest import ContextManifest
 
 import yaml
+from vch.feature_ledger import load_ledger, save_ledger, update_ledger_from_eval, write_progress_markdown
 
 
 class HarnessOrchestrator:
@@ -358,8 +359,20 @@ class HarnessOrchestrator:
         with open(eval_report_path, "w") as f:
             json.dump(eval_report.model_dump(), f, indent=2)
 
+        self._update_feature_progress(harness_dir, eval_report)
         print(f"Eval status: {eval_report.overall_status}")
         return eval_report
+
+    def _update_feature_progress(self, harness_dir: Path, eval_report: EvalReport) -> None:
+        """Update run-level feature ledger from evaluator output."""
+        ledger_path = harness_dir / "FEATURE_LEDGER.json"
+        if not ledger_path.exists():
+            return
+
+        ledger = load_ledger(ledger_path)
+        update_ledger_from_eval(ledger, eval_report)
+        save_ledger(ledger, ledger_path)
+        write_progress_markdown(ledger, harness_dir / "PROGRESS.md")
 
     def _run_evaluation_gate(
         self,

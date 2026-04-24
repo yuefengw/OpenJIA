@@ -50,6 +50,8 @@ class ContextCurator:
         # Collect current task context
         current_task_context = [
             f".harness/sprints/{sprint_id}/CONTRACT.yaml",
+            ".harness/FEATURE_LEDGER.json",
+            ".harness/PROGRESS.md",
             ".harness/GLOBAL_CONSTRAINTS.md",
         ]
 
