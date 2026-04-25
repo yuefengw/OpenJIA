@@ -205,10 +205,13 @@ class Generator:
     ) -> str:
         """Build the bounded generator prompt."""
         existing_files = {}
-        for path in contract.allowed_files:
-            candidate = self.repo_root / path
-            if candidate.exists() and candidate.is_file():
-                existing_files[path] = candidate.read_text(encoding="utf-8", errors="replace")
+        if manifest and "allowed_file_contents" in manifest:
+            existing_files = manifest.get("allowed_file_contents") or {}
+        else:
+            for path in contract.allowed_files:
+                candidate = self.repo_root / path
+                if candidate.exists() and candidate.is_file():
+                    existing_files[path] = candidate.read_text(encoding="utf-8", errors="replace")
 
         packet = {
             "contract": contract.model_dump(),

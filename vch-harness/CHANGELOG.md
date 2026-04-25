@@ -40,3 +40,16 @@ All notable project changes and verification results should be recorded here aft
   - `pytest -q` passed: 68 tests.
   - `python -m compileall src tests` passed.
   - `vch llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.
+
+### Context And Evaluation Self-Check
+
+- Added `GeneratorPacketBuilder` to create auditable, minimal generator context packets.
+- Generator packets include contract, context manifest, allowed file contents, must/may read lists, forbidden context, and optional repair packet.
+- Added `EvaluationEvidenceCollector` to persist command records, command logs, git diff data, self-verify report, changeset, and Playwright/test artifacts into `EVIDENCE_PACKET.json`.
+- Added `AcceptanceCoverageGate` to prevent false pass when AC results are missing, failing, lacking evidence, lacking concrete observations, command logs, or diff-scope pass.
+- Wired generator packet creation, evidence collection, and acceptance coverage into `HarnessOrchestrator`.
+- Added unit coverage for generator packet boundaries, evidence collection, and acceptance coverage gate behavior.
+- Re-ran verification:
+  - `pytest -q` passed: 72 tests.
+  - `python -m compileall src tests` passed.
+  - `vch llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.

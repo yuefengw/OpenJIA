@@ -22,9 +22,12 @@ from vch.gates.plan_feasibility import PlanFeasibilityGate
 from vch.gates.contract_gate import ContractGate
 from vch.gates.evaluation_gate import EvaluationGate, EvaluationDecision, DecisionKind
 from vch.gates.self_verify import SelfVerifyGate
+from vch.gates.acceptance_coverage import AcceptanceCoverageGate
 
 from vch.context.curator import ContextCurator
 from vch.context.manifest import ContextManifest
+from vch.context.generator_packet import GeneratorPacketBuilder
+from vch.evidence import EvaluationEvidenceCollector
 from vch.bootstrapper import ProjectBootstrapper
 
 import yaml
@@ -76,10 +79,13 @@ class HarnessOrchestrator:
         self.contract_gate = ContractGate()
         self.eval_gate = EvaluationGate(max_repair_attempts=max_repair_attempts)
         self.self_verify_gate = SelfVerifyGate()
+        self.coverage_gate = AcceptanceCoverageGate()
 
         # Initialize context
         self.context_curator = ContextCurator()
         self.bootstrapper = ProjectBootstrapper(str(self.repo_root))
+        self.generator_packet_builder = GeneratorPacketBuilder(str(self.repo_root))
+        self.evidence_collector = EvaluationEvidenceCollector(str(self.repo_root))
 
         # State
         self.run_state: Optional[RunState] = None
@@ -204,6 +210,10 @@ class HarnessOrchestrator:
             # Evaluate
             print(f"Running evaluator for {sprint.id}...")
             eval_report = self._run_evaluator(sprint, contract, harness_dir)
+
+            # Acceptance coverage
+            print(f"Running acceptance coverage gate for {sprint.id}...")
+            self._run_acceptance_coverage(contract, eval_report)
 
             # Evaluation gate decision
             print(f"Running evaluation gate for {sprint.id}...")
@@ -336,10 +346,12 @@ class HarnessOrchestrator:
         sprint_dir: Path
     ) -> None:
         """Run the generator."""
+        packet = self.generator_packet_builder.build(contract, manifest)
+        self.generator_packet_builder.save(packet, str(sprint_dir))
         result = self.generator.invoke(
             sprint_id=sprint.id,
             contract=contract,
-            manifest=manifest.model_dump() if manifest else None
+            manifest=packet
         )
         print(f"Generator completed: {result['status']}")
 
@@ -377,6 +389,9 @@ class HarnessOrchestrator:
             git_head=git_head
         )
 
+        evidence = self.evidence_collector.collect(sprint.id, git_base, git_head)
+        self.evidence_collector.save(evidence, str(harness_dir / "sprints" / sprint.id))
+
         # Save eval report
         eval_report_path = harness_dir / "sprints" / sprint.id / "EVAL_REPORT.json"
         with open(eval_report_path, "w") as f:
@@ -385,6 +400,18 @@ class HarnessOrchestrator:
         self._update_feature_progress(harness_dir, eval_report)
         print(f"Eval status: {eval_report.overall_status}")
         return eval_report
+
+    def _run_acceptance_coverage(self, contract: Contract, eval_report: EvalReport) -> None:
+        """Run acceptance coverage gate and fail hard on false pass."""
+        result = self.coverage_gate.validate(contract, eval_report)
+        if result.passed:
+            print("Acceptance coverage: pass")
+            return
+
+        for issue in result.issues:
+            print(f"  [ERROR] {issue.rule}: {issue.message}")
+        messages = "; ".join(issue.message for issue in result.issues)
+        raise RuntimeError(f"Acceptance coverage gate failed: {messages}")
 
     def _update_feature_progress(self, harness_dir: Path, eval_report: EvalReport) -> None:
         """Update run-level feature ledger from evaluator output."""
