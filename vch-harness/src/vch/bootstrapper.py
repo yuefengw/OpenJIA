@@ -40,6 +40,7 @@ class ProjectBootstrapper:
             "src/app.js": _APP_JS,
             "src/styles.css": _STYLES_CSS,
             "scripts/validate-app.mjs": _VALIDATE_APP,
+            "scripts/browser-e2e.mjs": _BROWSER_E2E,
             "tests/todo.spec.mjs": _TODO_SPEC,
         }
         for path, content in files.items():
@@ -65,6 +66,7 @@ class ProjectBootstrapper:
                 "- src/app.js",
                 "- src/styles.css",
                 "- scripts/validate-app.mjs",
+                "- scripts/browser-e2e.mjs",
                 "- tests/todo.spec.mjs",
             ]),
             encoding="utf-8",
@@ -80,7 +82,8 @@ _PACKAGE_JSON = """{
     "dev": "python -m http.server 5173",
     "build": "node scripts/validate-app.mjs",
     "test": "node scripts/validate-app.mjs",
-    "test:e2e": "npm install --no-save @playwright/test && npx playwright test"
+    "test:e2e": "node scripts/browser-e2e.mjs",
+    "test:playwright": "npm install --no-save @playwright/test && npx playwright test"
   }
 }
 """
@@ -343,6 +346,145 @@ if (failed.length > 0) {
 }
 
 console.log('Static Todo app validation passed.');
+"""
+
+_BROWSER_E2E = r"""import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+
+const root = process.cwd();
+const port = 5173;
+const baseURL = `http://127.0.0.1:${port}`;
+const chromePath = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForServer() {
+  for (let i = 0; i < 50; i += 1) {
+    try {
+      const response = await fetch(baseURL);
+      if (response.ok) return;
+    } catch {}
+    await wait(100);
+  }
+  throw new Error('dev server did not start');
+}
+
+async function getJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`request failed: ${url}`);
+  return response.json();
+}
+
+async function cdp(method, params = {}) {
+  const id = cdp.nextId = (cdp.nextId || 0) + 1;
+  cdp.socket.send(JSON.stringify({ id, method, params }));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
+    cdp.pending.set(id, { resolve, reject, timeout });
+  });
+}
+cdp.pending = new Map();
+
+async function run() {
+  mkdirSync('test-results', { recursive: true });
+
+  const server = spawn('python', ['-m', 'http.server', String(port)], { cwd: root });
+  await waitForServer();
+
+  const chrome = spawn(chromePath, [
+    '--headless=new',
+    '--disable-gpu',
+    '--remote-debugging-port=9222',
+    '--user-data-dir=' + root + '/.tmp-chrome-profile',
+    'about:blank',
+  ]);
+
+  try {
+    let pages;
+    for (let i = 0; i < 50; i += 1) {
+      try {
+        pages = await getJson('http://127.0.0.1:9222/json/list');
+        break;
+      } catch {
+        await wait(100);
+      }
+    }
+    const pageTarget = pages?.find((entry) => entry.type === 'page');
+    if (!pageTarget?.webSocketDebuggerUrl) {
+      throw new Error('Chrome page debugging endpoint did not start');
+    }
+
+    cdp.socket = new WebSocket(pageTarget.webSocketDebuggerUrl);
+    cdp.socket.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data);
+      if (!message.id || !cdp.pending.has(message.id)) return;
+      const pending = cdp.pending.get(message.id);
+      cdp.pending.delete(message.id);
+      clearTimeout(pending.timeout);
+      if (message.error) pending.reject(new Error(message.error.message));
+      else pending.resolve(message.result);
+    });
+    await new Promise((resolve) => cdp.socket.addEventListener('open', resolve, { once: true }));
+
+    await cdp('Page.enable');
+    await cdp('Runtime.enable');
+    await cdp('Page.navigate', { url: baseURL });
+    await wait(1000);
+
+    const expression = `(() => {
+      localStorage.clear();
+      location.reload();
+      return true;
+    })()`;
+    await cdp('Runtime.evaluate', { expression, awaitPromise: true });
+    await wait(1000);
+
+    const testExpression = `(() => {
+      const input = document.querySelector('#todo-input');
+      const form = document.querySelector('#todo-form');
+      input.value = 'Write harness tests';
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      let item = document.querySelector('.todo-item');
+      if (!item || !item.textContent.includes('Write harness tests')) throw new Error('todo was not added');
+      item.querySelector('.todo-toggle').click();
+      item = document.querySelector('.todo-item');
+      if (!item.classList.contains('is-complete')) throw new Error('todo was not completed');
+      location.reload();
+      return true;
+    })()`;
+    await cdp('Runtime.evaluate', { expression: testExpression, awaitPromise: true });
+    await wait(1000);
+
+    const persistenceExpression = `(() => {
+      const item = document.querySelector('.todo-item');
+      if (!item || !item.textContent.includes('Write harness tests')) throw new Error('todo did not persist');
+      if (!item.classList.contains('is-complete')) throw new Error('completed state did not persist');
+      item.querySelector('.todo-remove').click();
+      if (document.querySelectorAll('.todo-item').length !== 0) throw new Error('todo was not deleted');
+      if (!document.querySelector('#empty-state') || document.querySelector('#empty-state').hidden) throw new Error('empty state not visible');
+      return document.documentElement.outerHTML;
+    })()`;
+    const result = await cdp('Runtime.evaluate', {
+      expression: persistenceExpression,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    writeFileSync('test-results/todo-pass.html', result.result.value);
+    writeFileSync('test-results/todo-pass.png', 'browser e2e passed');
+    console.log('Browser Todo E2E passed.');
+  } finally {
+    cdp.socket?.close();
+    chrome.kill();
+    server.kill();
+  }
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 """
 
 _PLAYWRIGHT_CONFIG = """import { defineConfig } from '@playwright/test';

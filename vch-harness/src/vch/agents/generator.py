@@ -8,6 +8,7 @@ from vch.schemas.contract import Contract
 from vch.schemas.repair_packet import RepairPacket
 from vch.bootstrapper import (
     _APP_JS,
+    _BROWSER_E2E,
     _INDEX_HTML,
     _PACKAGE_JSON,
     _PLAYWRIGHT_CONFIG,
@@ -18,6 +19,7 @@ from vch.bootstrapper import (
 from vch.tools.command_runner import CommandRunner
 from vch.tools.filesystem import GuardedFilesystem
 from vch.llm import LLMBackend, LLMConfigurationError, make_llm_backend
+from vch.prompts.loader import load_role_prompt
 
 
 class Generator:
@@ -156,6 +158,7 @@ class Generator:
                 "playwright.config.mjs": _PLAYWRIGHT_CONFIG,
                 "src/app.js": _APP_JS,
                 "src/styles.css": _STYLES_CSS,
+                "scripts/browser-e2e.mjs": _BROWSER_E2E,
                 "scripts/validate-app.mjs": _VALIDATE_APP,
                 "tests/todo.spec.mjs": _TODO_SPEC,
             }
@@ -329,10 +332,8 @@ Required commands were run and logged in SELF_VERIFY_REPORT.md.
 
     def _load_prompt(self, name: str) -> str:
         """Load a role prompt."""
-        prompt_path = Path(__file__).parents[1] / "prompts" / name
-        if prompt_path.exists():
-            return prompt_path.read_text(encoding="utf-8", errors="replace")
-        return "You are the VCH Generator. Return valid JSON with contract-scoped files."
+        prompt = load_role_prompt(name)
+        return prompt or "You are the VCH Generator. Return valid JSON with contract-scoped files."
 
 
 _GENERATOR_OUTPUT_SCHEMA = {

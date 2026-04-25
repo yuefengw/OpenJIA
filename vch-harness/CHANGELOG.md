@@ -53,3 +53,19 @@ All notable project changes and verification results should be recorded here aft
   - `pytest -q` passed: 72 tests.
   - `python -m compileall src tests` passed.
   - `vch llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.
+
+### Three-Layer Prompt Architecture
+
+- Added `src/vch/prompts/common_protocol.md` as the shared VCH protocol layer for all role prompts.
+- Rewrote planner, generator, and evaluator prompts into:
+  - Layer 1: universal VCH protocol.
+  - Layer 2: role methodology.
+  - Layer 3: output contract.
+- Added `src/vch/prompts/loader.py` so role prompt loading automatically prepends the common protocol.
+- Wired Planner and Generator to the shared prompt loader.
+- Added tests proving core role prompts include all three layers.
+- Fixed the generated zero-dependency browser E2E script to connect to the page-level Chrome DevTools Protocol websocket.
+- Re-ran verification:
+  - `pytest -q` passed: 74 tests.
+  - In-memory Python source compilation passed for 61 files. `compileall` was avoided because locked Windows `__pycache__` files prevented `.pyc` writes.
+  - `vch llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.

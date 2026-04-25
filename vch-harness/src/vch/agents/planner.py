@@ -7,6 +7,7 @@ import json
 from vch.schemas.feature_spec import FeatureSpec
 from vch.feature_ledger import build_ledger_from_spec, save_ledger, write_progress_markdown
 from vch.llm import LLMBackend, LLMConfigurationError, make_llm_backend
+from vch.prompts.loader import load_role_prompt
 
 
 class Planner:
@@ -206,6 +207,7 @@ class Planner:
             "src/app.js",
             "src/styles.css",
             "scripts/validate-app.mjs",
+            "scripts/browser-e2e.mjs",
             "tests/todo.spec.mjs",
         ]:
             if (self.repo_root / path).exists():
@@ -242,10 +244,8 @@ class Planner:
 
     def _load_prompt(self, name: str) -> str:
         """Load a role prompt."""
-        prompt_path = Path(__file__).parents[1] / "prompts" / name
-        if prompt_path.exists():
-            return prompt_path.read_text()
-        return "You are the VCH Planner. Return valid FEATURE_SPEC JSON."
+        prompt = load_role_prompt(name)
+        return prompt or "You are the VCH Planner. Return valid FEATURE_SPEC JSON."
 
     def _save_feature_spec(self, spec: FeatureSpec, harness_dir: Path) -> str:
         """Save feature spec to JSON."""
