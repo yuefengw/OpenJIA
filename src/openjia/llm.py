@@ -116,6 +116,83 @@ class OpenAICompatibleChatBackend:
         return _loads_json_from_text(content)
 
 
+@dataclass
+class DeepAgentsJSONBackend:
+    """DeepAgents SDK runtime backend for JSON-producing role agents."""
+
+    model: str
+    provider_name: str = "minimax"
+
+    def generate_json(self, *, instructions: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+        """Generate JSON through a DeepAgents runtime with structured output."""
+        try:
+            from deepagents import create_deep_agent
+            from langchain_openai import ChatOpenAI
+        except ImportError as error:
+            raise LLMConfigurationError(
+                "DeepAgents backend requires `pip install -e .[deepagents]`."
+            ) from error
+
+        chat_model = self._chat_model(ChatOpenAI)
+        agent = create_deep_agent(
+            model=chat_model,
+            tools=[],
+            system_prompt=instructions,
+            response_format=schema,
+            name="openjia-role-agent",
+        )
+        try:
+            result = agent.invoke({
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _json_prompt(prompt, schema),
+                    }
+                ]
+            })
+        except Exception as error:
+            raise LLMConfigurationError(
+                f"DeepAgents {self.provider_name} request failed: {error}"
+            ) from error
+
+        return _coerce_agent_json(result)
+
+    def _chat_model(self, chat_openai_cls: Any) -> Any:
+        """Build a LangChain chat model for a configured provider."""
+        provider = self.provider_name.lower()
+        if provider == "minimax":
+            api_key = os.getenv("MINIMAX_API_KEY")
+            if not api_key:
+                raise LLMConfigurationError("MINIMAX_API_KEY is not set.")
+            return chat_openai_cls(
+                model=self.model,
+                api_key=api_key,
+                base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1"),
+                temperature=0,
+            )
+        if provider == "openai":
+            if not os.getenv("OPENAI_API_KEY"):
+                raise LLMConfigurationError("OPENAI_API_KEY is not set.")
+            return chat_openai_cls(model=self.model, temperature=0)
+        if provider in {"openai-compatible", "compatible"}:
+            base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+            api_key_env = os.getenv("OPENAI_COMPATIBLE_API_KEY_ENV", "OPENAI_API_KEY")
+            api_key = os.getenv(api_key_env)
+            if not base_url:
+                raise LLMConfigurationError(
+                    "OPENAI_COMPATIBLE_BASE_URL is not set for DeepAgents compatible backend."
+                )
+            if not api_key:
+                raise LLMConfigurationError(f"{api_key_env} is not set.")
+            return chat_openai_cls(
+                model=self.model,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=0,
+            )
+        raise LLMConfigurationError(f"Unsupported DeepAgents provider: {self.provider_name}")
+
+
 def make_llm_backend(name: str | None, model: str | None = None) -> LLMBackend | None:
     """Create an LLM backend by name."""
     backend = (name or os.getenv("OPENJIA_LLM_BACKEND") or "deterministic").lower()
@@ -132,6 +209,13 @@ def make_llm_backend(name: str | None, model: str | None = None) -> LLMBackend |
             api_key_env="MINIMAX_API_KEY",
             provider_name="minimax",
             use_response_format=False,
+        )
+    if backend in {"deepagents", "deepagent"}:
+        provider = os.getenv("OPENJIA_DEEPAGENTS_PROVIDER", "minimax")
+        default_model = "MiniMax-M2.7" if provider == "minimax" else "gpt-4.1"
+        return DeepAgentsJSONBackend(
+            model=selected_model or default_model,
+            provider_name=provider,
         )
     if backend in {"openai-compatible", "compatible"}:
         base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
@@ -202,3 +286,45 @@ def _loads_json_from_text(text: str) -> dict[str, Any]:
     if last_object is None:
         raise ValueError("LLM response did not contain a JSON object.")
     return last_object
+
+
+def _coerce_agent_json(result: Any) -> dict[str, Any]:
+    """Extract a structured JSON object from a DeepAgents/LangGraph result."""
+    if isinstance(result, dict):
+        structured = result.get("structured_response")
+        if isinstance(structured, dict):
+            return structured
+        if hasattr(structured, "model_dump"):
+            return structured.model_dump()
+
+        output = result.get("output")
+        if isinstance(output, dict):
+            return output
+
+        messages = result.get("messages") or []
+        for message in reversed(messages):
+            content = getattr(message, "content", None)
+            if isinstance(message, dict):
+                content = message.get("content")
+            if isinstance(content, str):
+                try:
+                    return _loads_json_from_text(content)
+                except ValueError:
+                    continue
+            if isinstance(content, list):
+                text = "\n".join(
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("text")
+                )
+                if text:
+                    try:
+                        return _loads_json_from_text(text)
+                    except ValueError:
+                        continue
+
+    if isinstance(result, str):
+        return _loads_json_from_text(result)
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    raise ValueError("DeepAgents response did not contain a JSON object.")

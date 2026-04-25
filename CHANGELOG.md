@@ -4,6 +4,28 @@ All notable project changes and verification results should be recorded here aft
 
 ## 2026-04-25
 
+### DeepAgents SDK Runtime
+
+- Added optional `deepagents` and `all` dependency extras.
+- Added `DeepAgentsJSONBackend`, which runs role prompts through `deepagents.create_deep_agent(...)`.
+- Added MiniMax-backed DeepAgents configuration through `OPENJIA_DEEPAGENTS_PROVIDER=minimax`.
+- Added `docs/DEEPAGENTS_SDK_INTEGRATION.md` with integration notes, configuration, current boundary, and next upgrade path.
+- Updated Planner and Generator so `--llm-backend deepagents` does not silently use deterministic fallbacks.
+- Added Planner schema-repair retry for malformed LLM/DeepAgents structured output.
+- Added Planner normalization for web project commands so long-running dev servers are not used as required verification commands.
+- Expanded web contract normalization so DeepAgents Generator can edit existing app files under contract scope.
+- Normalized DeepAgents virtual `workspace/...` file paths before applying guarded writes.
+
+### Verified
+
+- `openjia llm-smoke --llm-backend deepagents --model MiniMax-M2.7` passed.
+- DeepAgents end-to-end Todo run passed without `GENERATOR_ERROR.md` or deterministic generator fallback.
+- DeepAgents run self-verification passed `node scripts/validate-app.mjs`, `npm test`, `npm run build`, and `npm run test:e2e`.
+- DeepAgents evaluator produced `EVAL_REPORT.json.overall_status == "pass"` and collected `test-results/todo-pass.html` plus `test-results/todo-pass.png`.
+- Targeted DeepAgents/Planner tests passed: 6 tests.
+- Full `pytest -q` passed: 80 tests.
+- `openjia llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.
+
 ### OpenJIA Rename
 
 - Renamed the Python package from `vch` to `openjia`.

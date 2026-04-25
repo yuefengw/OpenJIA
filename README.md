@@ -74,6 +74,7 @@ Commit `.env.example`, never `.env`.
 
 ```powershell
 openjia llm-smoke --llm-backend minimax --model MiniMax-M2.7
+openjia llm-smoke --llm-backend deepagents --model MiniMax-M2.7
 pytest -q
 ```
 
@@ -115,6 +116,7 @@ http://localhost:5173
 ## Current Capabilities
 
 - MiniMax/OpenAI-compatible LLM planner.
+- DeepAgents SDK runtime backend via `--llm-backend deepagents`.
 - LLM generator interface with structured file outputs.
 - Deterministic fallback generator for simple static Todo/web tasks.
 - Guarded file writes constrained by `CONTRACT.yaml`.
@@ -128,7 +130,7 @@ http://localhost:5173
 - General-purpose LLM generation is still early and should be treated as experimental.
 - Repair loop fingerprints and RCA escalation are not fully implemented yet.
 - Final run report and persistent dev server URL output still need improvement.
-- DeepAgents SDK runtime integration is not yet complete; current LLM integration is provider-adapter based.
+- DeepAgents SDK runtime is available for structured Planner/Generator calls, but direct DeepAgents tool-use integration is still evolving.
 
 ## Development Rule
 

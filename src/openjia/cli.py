@@ -42,7 +42,7 @@ def init(repo: str, max_sprints: int, max_repair_attempts: int):
 @click.option("--max-sprints", default=3, help="Maximum number of sprints")
 @click.option("--max-repair-attempts", default=3, help="Maximum repair attempts per sprint")
 @click.option("--run-id", default=None, help="Continue existing run")
-@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible")
+@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible|deepagents")
 @click.option("--model", default="gpt-4.1", help="LLM model name when using an LLM backend")
 def plan(
     task: str,
@@ -87,7 +87,7 @@ def plan(
 @click.argument("repo", default=".")
 @click.option("--max-sprints", default=3, help="Maximum number of sprints")
 @click.option("--max-repair-attempts", default=3, help="Maximum repair attempts per sprint")
-@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible")
+@click.option("--llm-backend", default="deterministic", help="LLM backend: deterministic|openai|minimax|openai-compatible|deepagents")
 @click.option("--model", default="gpt-4.1", help="LLM model name when using an LLM backend")
 def run(
     task: str,
@@ -167,7 +167,7 @@ def run_sprint(sprint_id: str, repo: str):
 
 
 @main.command("llm-smoke")
-@click.option("--llm-backend", default="minimax", help="LLM backend: openai|minimax|openai-compatible")
+@click.option("--llm-backend", default="minimax", help="LLM backend: openai|minimax|openai-compatible|deepagents")
 @click.option("--model", default=None, help="LLM model name")
 def llm_smoke(llm_backend: str, model: str):
     """Run a small JSON-only LLM connectivity check."""

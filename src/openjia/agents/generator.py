@@ -51,6 +51,10 @@ class Generator:
         self.repo_root = Path(repo_root)
         self.command_runner = CommandRunner(repo_root)
         self.llm_backend = llm_backend
+        self.allow_deterministic_fallback = (llm_backend_name or "").lower() not in {
+            "deepagents",
+            "deepagent",
+        }
         if self.llm_backend is None and llm_backend_name:
             self.llm_backend = make_llm_backend(llm_backend_name, model)
 
@@ -145,6 +149,8 @@ class Generator:
                     return changed_files
             except (LLMConfigurationError, ValueError, json.JSONDecodeError, PermissionError) as error:
                 self._write_generator_error(contract.sprint_id, error)
+                if not self.allow_deterministic_fallback:
+                    raise
 
         changed_files: list[str] = []
         goal_text = contract.goal.lower()
@@ -195,10 +201,20 @@ class Generator:
             content = item.get("content")
             if not path or not isinstance(content, str):
                 raise ValueError("Each generated file needs path and content.")
+            path = self._normalize_generated_path(path)
             writer.write_text(path, content)
             changed_files.append(path)
 
         return changed_files
+
+    def _normalize_generated_path(self, path: str) -> str:
+        """Normalize model-authored paths to repository-relative paths."""
+        normalized = path.replace("\\", "/").lstrip("/")
+        prefixes = ("workspace/", "./workspace/", "/workspace/")
+        for prefix in prefixes:
+            if normalized.startswith(prefix.lstrip("/")):
+                normalized = normalized[len(prefix.lstrip("/")):]
+        return normalized
 
     def _build_llm_prompt(
         self,
@@ -234,8 +250,13 @@ class Generator:
         """Persist LLM generator failure before falling back."""
         sprint_dir = self.repo_root / ".harness" / "sprints" / sprint_id
         sprint_dir.mkdir(parents=True, exist_ok=True)
+        fallback_line = (
+            "LLM generator failed and deterministic fallback was used."
+            if self.allow_deterministic_fallback
+            else "LLM generator failed; deterministic fallback is disabled for this backend."
+        )
         (sprint_dir / "GENERATOR_ERROR.md").write_text(
-            f"# Generator Error\n\nLLM generator failed and deterministic fallback was used.\n\n```text\n{error}\n```\n",
+            f"# Generator Error\n\n{fallback_line}\n\n```text\n{error}\n```\n",
             encoding="utf-8",
         )
 

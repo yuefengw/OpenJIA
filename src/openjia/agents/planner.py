@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Optional
 import json
+from pydantic import ValidationError
 
 from openjia.schemas.feature_spec import FeatureSpec
 from openjia.feature_ledger import build_ledger_from_spec, save_ledger, write_progress_markdown
@@ -35,6 +36,7 @@ class Planner:
     ):
         self.repo_root = Path(repo_root)
         self.llm_backend = llm_backend
+        self.strict_llm = (llm_backend_name or "").lower() in {"deepagents", "deepagent"}
         if self.llm_backend is None and llm_backend_name:
             self.llm_backend = make_llm_backend(llm_backend_name, model)
 
@@ -83,8 +85,12 @@ class Planner:
                 constraints=constraints,
             ) if self.llm_backend else self._generate_placeholder_spec(user_task)
         except (LLMConfigurationError, ValueError, json.JSONDecodeError) as error:
+            if self.strict_llm:
+                raise
             spec = self._generate_placeholder_spec(user_task)
             spec.assumptions.append(f"LLM planner failed; deterministic fallback used: {error}")
+
+        self._normalize_spec(spec)
 
         # Save the spec
         harness_dir = self.repo_root / ".harness"
@@ -94,6 +100,44 @@ class Planner:
         self._save_feature_ledger(spec, harness_dir)
 
         return spec
+
+    def _normalize_spec(self, spec: FeatureSpec) -> None:
+        """Apply harness safety normalization to model-authored plans."""
+        existing_files = self._detect_extension_points()
+        if existing_files and (self.repo_root / "package.json").exists():
+            for feature in spec.features:
+                feature.estimated_files = sorted(set(feature.estimated_files + existing_files))
+
+        safe_commands = self._detect_verification_commands()
+        for sprint in spec.sprints:
+            commands = [
+                command
+                for command in sprint.verification_commands
+                if not self._is_long_running_command(command)
+            ]
+            if not commands:
+                commands = safe_commands
+            elif (self.repo_root / "package.json").exists():
+                for command in safe_commands:
+                    if command not in commands:
+                        commands.append(command)
+            sprint.verification_commands = commands
+
+            if existing_files and (self.repo_root / "package.json").exists():
+                sprint.max_files_to_touch = max(sprint.max_files_to_touch, len(existing_files))
+
+    def _is_long_running_command(self, command: str) -> bool:
+        """Detect commands that start servers instead of terminating as verification."""
+        lowered = command.lower()
+        patterns = [
+            "http.server",
+            "npm run dev",
+            "vite --host",
+            "vite --",
+            "next dev",
+            "serve ",
+        ]
+        return any(pattern in lowered for pattern in patterns)
 
     def _generate_llm_spec(
         self,
@@ -118,7 +162,23 @@ class Planner:
             prompt=prompt,
             schema=FeatureSpec.model_json_schema(),
         )
-        return FeatureSpec(**data)
+        try:
+            return FeatureSpec(**data)
+        except ValidationError as error:
+            repair_prompt = "\n\n".join([
+                "The previous planner response did not match the required FEATURE_SPEC schema.",
+                f"Validation error:\n{error}",
+                f"Invalid response JSON:\n{json.dumps(data, ensure_ascii=False, indent=2)}",
+                "Return one complete FEATURE_SPEC JSON object with top-level keys: "
+                "project_goal, non_goals, assumptions, features, sprints.",
+                prompt,
+            ])
+            repaired = self.llm_backend.generate_json(
+                instructions=instructions,
+                prompt=repair_prompt,
+                schema=FeatureSpec.model_json_schema(),
+            )
+            return FeatureSpec(**repaired)
 
     def _generate_placeholder_spec(self, user_task: str) -> FeatureSpec:
         """Generate a conservative deterministic feature spec."""
@@ -231,6 +291,8 @@ class Planner:
                 if len(candidates) >= 8:
                     return candidates
 
+        if candidates:
+            return candidates
         if (self.repo_root / "package.json").exists():
             return ["package.json"]
         if (self.repo_root / "pyproject.toml").exists():

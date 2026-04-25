@@ -16,6 +16,7 @@ What works now:
 
 - `.env` can provide MiniMax API credentials.
 - Planner can call MiniMax and produce `FEATURE_SPEC.json`.
+- Planner and Generator can run through DeepAgents SDK with `--llm-backend deepagents`.
 - Feature ledger and progress artifacts are written.
 - PlanFeasibilityGate, ContractGate, SelfVerifyGate, EvaluationGate, and command logging exist.
 - Evaluator can run shell commands and write command evidence.
@@ -27,7 +28,7 @@ What works now:
 
 What does not yet work:
 
-- General-purpose LLM generation is still experimental.
+- General-purpose DeepAgents generation is now available, but direct tool-use integration is still experimental.
 - Repair loop does not persist repeated failure fingerprints or perform root-cause escalation.
 - `openjia run` can create and verify the first static Todo app path, but does not yet start a persistent dev server or print a final URL.
 
@@ -138,6 +139,12 @@ Fixture command:
 
 ```bash
 openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" --llm-backend minimax
+```
+
+DeepAgents runtime fixture:
+
+```bash
+openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" --llm-backend deepagents --model MiniMax-M2.7
 ```
 
 Expected features:
