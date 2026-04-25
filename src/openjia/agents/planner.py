@@ -113,7 +113,8 @@ class Planner:
             commands = [
                 command
                 for command in sprint.verification_commands
-                if not self._is_long_running_command(command)
+                if self._is_executable_command(command)
+                and not self._is_long_running_command(command)
             ]
             if not commands:
                 commands = safe_commands
@@ -138,6 +139,22 @@ class Planner:
             "serve ",
         ]
         return any(pattern in lowered for pattern in patterns)
+
+    def _is_executable_command(self, command: str) -> bool:
+        """Keep shell commands and drop natural-language verification notes."""
+        lowered = command.strip().lower()
+        executable_prefixes = (
+            "npm ",
+            "node ",
+            "python ",
+            "pytest",
+            "npx ",
+            "uv ",
+            "pnpm ",
+            "yarn ",
+            "bun ",
+        )
+        return lowered.startswith(executable_prefixes)
 
     def _generate_llm_spec(
         self,

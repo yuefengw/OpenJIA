@@ -25,6 +25,9 @@ All notable project changes and verification results should be recorded here aft
 - Targeted DeepAgents/Planner tests passed: 6 tests.
 - Full `pytest -q` passed: 80 tests.
 - `openjia llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.
+- Fixed Planner command normalization so natural-language verification notes are not executed as shell commands.
+- Fixed browser E2E script to tolerate animated delete flows and report CDP browser exceptions clearly.
+- Verified the generated `D:\Project\testOpenJia` app with `npm run build` and `npm run test:e2e`.
 
 ### OpenJIA Rename
 

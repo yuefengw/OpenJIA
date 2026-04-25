@@ -457,11 +457,12 @@ async function run() {
     await cdp('Runtime.evaluate', { expression: testExpression, awaitPromise: true });
     await wait(1000);
 
-    const persistenceExpression = `(() => {
+    const persistenceExpression = `(async () => {
       const item = document.querySelector('.todo-item');
       if (!item || !item.textContent.includes('Write harness tests')) throw new Error('todo did not persist');
       if (!item.classList.contains('is-complete')) throw new Error('completed state did not persist');
       item.querySelector('.todo-remove').click();
+      await new Promise((resolve) => setTimeout(resolve, 600));
       if (document.querySelectorAll('.todo-item').length !== 0) throw new Error('todo was not deleted');
       if (!document.querySelector('#empty-state') || document.querySelector('#empty-state').hidden) throw new Error('empty state not visible');
       return document.documentElement.outerHTML;
@@ -471,7 +472,14 @@ async function run() {
       awaitPromise: true,
       returnByValue: true,
     });
-    writeFileSync('test-results/todo-pass.html', result.result.value);
+    if (result.exceptionDetails) {
+      throw new Error(result.exceptionDetails.text || 'browser evaluation failed');
+    }
+    const html = result.result?.value;
+    if (typeof html !== 'string') {
+      throw new Error('browser evaluation did not return HTML evidence');
+    }
+    writeFileSync('test-results/todo-pass.html', html);
     writeFileSync('test-results/todo-pass.png', 'browser e2e passed');
     console.log('Browser Todo E2E passed.');
   } finally {

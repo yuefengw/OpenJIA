@@ -85,7 +85,10 @@ def test_planner_normalizes_long_running_verification_commands(tmp_path):
                 id="S001",
                 goal="Build app",
                 features=["F001"],
-                verification_commands=["python -m http.server 5173"],
+                verification_commands=[
+                    "Verify background animation is visible",
+                    "python -m http.server 5173",
+                ],
             )
         ],
     )
@@ -93,6 +96,7 @@ def test_planner_normalizes_long_running_verification_commands(tmp_path):
     planner._normalize_spec(spec)
 
     assert "python -m http.server 5173" not in spec.sprints[0].verification_commands
+    assert "Verify background animation is visible" not in spec.sprints[0].verification_commands
     assert "npm run build" in spec.sprints[0].verification_commands
     assert "npm run test:e2e" in spec.sprints[0].verification_commands
     assert "src/app.js" in spec.features[0].estimated_files
