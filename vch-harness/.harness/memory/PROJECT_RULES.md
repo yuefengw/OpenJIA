@@ -1,3 +1,0 @@
-# Project Rules
-
-## TBD

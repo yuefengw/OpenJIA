@@ -1,1 +1,0 @@
-"""VCH Test package."""
