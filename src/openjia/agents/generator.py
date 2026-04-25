@@ -1,4 +1,4 @@
-"""Generator agent - implements code within contract scope."""
+﻿"""Generator agent - implements code within contract scope."""
 
 from pathlib import Path
 from typing import Optional
@@ -6,16 +6,6 @@ import json
 
 from openjia.schemas.contract import Contract
 from openjia.schemas.repair_packet import RepairPacket
-from openjia.bootstrapper import (
-    _APP_JS,
-    _BROWSER_E2E,
-    _INDEX_HTML,
-    _PACKAGE_JSON,
-    _PLAYWRIGHT_CONFIG,
-    _STYLES_CSS,
-    _TODO_SPEC,
-    _VALIDATE_APP,
-)
 from openjia.tools.command_runner import CommandRunner
 from openjia.tools.filesystem import GuardedFilesystem
 from openjia.llm import LLMBackend, LLMConfigurationError, make_llm_backend
@@ -157,16 +147,12 @@ class Generator:
         allowed = contract.allowed_files
         writer = GuardedFilesystem(str(self.repo_root), allowed)
 
-        if self._is_todo_or_web_task(goal_text):
+        if self._is_web_task(goal_text):
             desired_files = {
-                "package.json": _PACKAGE_JSON,
-                "index.html": _INDEX_HTML,
-                "playwright.config.mjs": _PLAYWRIGHT_CONFIG,
-                "src/app.js": _APP_JS,
-                "src/styles.css": _STYLES_CSS,
-                "scripts/browser-e2e.mjs": _BROWSER_E2E,
-                "scripts/validate-app.mjs": _VALIDATE_APP,
-                "tests/todo.spec.mjs": _TODO_SPEC,
+                "index.html": self._generic_index_html(contract.goal),
+                "src/app.js": self._generic_app_js(contract.goal),
+                "src/styles.css": _GENERIC_STYLES_CSS,
+                "tests/acceptance.spec.mjs": _GENERIC_ACCEPTANCE_SPEC,
             }
             for path, content in desired_files.items():
                 if writer.is_allowed(path):
@@ -260,9 +246,55 @@ class Generator:
             encoding="utf-8",
         )
 
-    def _is_todo_or_web_task(self, goal_text: str) -> bool:
-        """Detect tasks covered by the deterministic web generator."""
-        return any(token in goal_text for token in ("todo", "待办", "网站", "web", "app"))
+    def _is_web_task(self, goal_text: str) -> bool:
+        """Detect tasks covered by the deterministic generic web generator."""
+        return any(token in goal_text for token in ("网站", "网页", "web", "app", "应用"))
+
+    def _generic_index_html(self, goal: str) -> str:
+        """Build a generic static app shell for deterministic fallback mode."""
+        escaped_goal = goal.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenJIA Generated App</title>
+    <link rel="stylesheet" href="src/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-labelledby="app-title">
+        <p class="eyebrow">OpenJIA</p>
+        <h1 id="app-title">Generated App</h1>
+        <p id="task-summary">{escaped_goal}</p>
+        <div id="app-root" class="surface"></div>
+      </section>
+    </main>
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
+"""
+
+    def _generic_app_js(self, goal: str) -> str:
+        """Build minimal generic client behavior for deterministic fallback mode."""
+        return f"""const root = document.querySelector('#app-root');
+
+const state = {{
+  task: {json.dumps(goal, ensure_ascii=False)},
+  generatedAt: new Date().toISOString(),
+}};
+
+root.innerHTML = `
+  <h2>Ready</h2>
+  <p>This generic scaffold is ready for an LLM-backed sprint to replace with task-specific behavior.</p>
+  <dl>
+    <dt>Task</dt>
+    <dd>${{state.task}}</dd>
+    <dt>Generated</dt>
+    <dd>${{state.generatedAt}}</dd>
+  </dl>
+`;
+"""
 
     def _run_required_commands(self, sprint_dir: Path, contract: Contract) -> list[dict]:
         """Run required commands and collect self-verification entries."""
@@ -334,14 +366,14 @@ Required commands were run and logged in SELF_VERIFY_REPORT.md.
 ## Repair Attempt {repair_packet.repair_attempt}
 
 ## What was fixed
-[TODO: Describe the fix]
+[pending repair summary]
 
 ## Verification
 - [ ] Failed AC now passes
 - [ ] Previously passing ACs still pass
 
 ## Root Cause (if repeated failure)
-[TODO: Analyze root cause]
+[pending root-cause analysis]
 """
         (sprint_dir / "REPAIR_REPORT.md").write_text(content)
 
@@ -378,3 +410,79 @@ _GENERATOR_OUTPUT_SCHEMA = {
     "required": ["summary", "files"],
     "additionalProperties": False,
 }
+
+
+_GENERIC_STYLES_CSS = """:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f7fb;
+  color: #17202a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+}
+
+.workspace {
+  width: min(760px, 100%);
+  border: 1px solid #d7dde4;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 28px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: #496a84;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 32px;
+}
+
+.surface {
+  margin-top: 20px;
+  border: 1px solid #d7dde4;
+  border-radius: 8px;
+  padding: 18px;
+  background: #f8fafc;
+}
+
+dt {
+  margin-top: 12px;
+  font-weight: 700;
+}
+
+dd {
+  margin: 4px 0 0;
+}
+"""
+
+
+_GENERIC_ACCEPTANCE_SPEC = """import { test, expect } from '@playwright/test';
+
+test('generated app renders visible content', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('body')).toContainText('Generated App');
+  await expect(page.locator('#app-root')).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-smoke.png', fullPage: true });
+});
+"""
+

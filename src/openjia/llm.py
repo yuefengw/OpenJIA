@@ -134,13 +134,15 @@ class DeepAgentsJSONBackend:
             ) from error
 
         chat_model = self._chat_model(ChatOpenAI)
-        agent = create_deep_agent(
-            model=chat_model,
-            tools=[],
-            system_prompt=instructions,
-            response_format=schema,
-            name="openjia-role-agent",
-        )
+        agent_kwargs: dict[str, Any] = {
+            "model": chat_model,
+            "tools": [],
+            "system_prompt": instructions,
+            "name": "openjia-role-agent",
+        }
+        if "$defs" not in schema:
+            agent_kwargs["response_format"] = schema
+        agent = create_deep_agent(**agent_kwargs)
         try:
             result = agent.invoke({
                 "messages": [

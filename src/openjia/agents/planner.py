@@ -1,4 +1,4 @@
-"""Planner agent - generates feature specs and roadmaps."""
+﻿"""Planner agent - generates feature specs and roadmaps."""
 
 from pathlib import Path
 from typing import Optional
@@ -104,16 +104,28 @@ class Planner:
     def _normalize_spec(self, spec: FeatureSpec) -> None:
         """Apply harness safety normalization to model-authored plans."""
         existing_files = self._detect_extension_points()
+        web_goal = self._looks_like_web_goal(spec.project_goal)
+        if web_goal:
+            existing_files = sorted(set(existing_files + self._default_web_write_candidates()))
+        protected_files = self._protected_web_runtime_files() if web_goal and self.strict_llm else []
         if existing_files and (self.repo_root / "package.json").exists():
             for feature in spec.features:
-                feature.estimated_files = sorted(set(feature.estimated_files + existing_files))
+                feature.estimated_files = self._normalize_file_list(
+                    feature.estimated_files + existing_files,
+                    canonicalize_web=web_goal,
+                )
+                if protected_files:
+                    feature.estimated_files = [
+                        path for path in feature.estimated_files if path not in protected_files
+                    ]
 
         safe_commands = self._detect_verification_commands()
         for sprint in spec.sprints:
             commands = [
                 command
                 for command in sprint.verification_commands
-                if not self._is_long_running_command(command)
+                if self._is_executable_command(command)
+                and not self._is_long_running_command(command)
             ]
             if not commands:
                 commands = safe_commands
@@ -125,6 +137,56 @@ class Planner:
 
             if existing_files and (self.repo_root / "package.json").exists():
                 sprint.max_files_to_touch = max(sprint.max_files_to_touch, len(existing_files))
+            if protected_files:
+                sprint.must_not_touch = sorted(set(sprint.must_not_touch + protected_files))
+
+    def _normalize_file_list(self, paths: list[str], canonicalize_web: bool = False) -> list[str]:
+        """Normalize model-authored file paths to repository-relative paths."""
+        web_path_map = {
+            "app.js": "src/app.js",
+            "script.js": "src/app.js",
+            "main.js": "src/app.js",
+            "style.css": "src/styles.css",
+            "styles.css": "src/styles.css",
+        }
+        normalized = []
+        for path in paths:
+            clean = path.replace("\\", "/").lstrip("/")
+            for prefix in ("workspace/", "./workspace/"):
+                if clean.startswith(prefix):
+                    clean = clean[len(prefix):]
+            if canonicalize_web:
+                clean = web_path_map.get(clean, clean)
+            if clean and clean not in normalized:
+                normalized.append(clean)
+        return sorted(normalized)
+
+    def _looks_like_web_goal(self, text: str) -> bool:
+        """Detect web app tasks where absent app files should be creatable."""
+        lowered = text.lower()
+        return any(token in lowered for token in ("web", "app", "网站", "网页", "应用"))
+
+    def _default_web_write_candidates(self) -> list[str]:
+        """Candidate files a web-task generator may need to create."""
+        return [
+            "index.html",
+            "src/app.js",
+            "src/styles.css",
+            "package.json",
+            "playwright.config.mjs",
+            "scripts/validate-app.mjs",
+            "scripts/browser-e2e.mjs",
+            "tests/acceptance.spec.mjs",
+        ]
+
+    def _protected_web_runtime_files(self) -> list[str]:
+        """Runtime/evaluator scaffold files that DeepAgents should not rewrite."""
+        return [
+            "package.json",
+            "playwright.config.mjs",
+            "scripts/validate-app.mjs",
+            "scripts/browser-e2e.mjs",
+        ]
 
     def _is_long_running_command(self, command: str) -> bool:
         """Detect commands that start servers instead of terminating as verification."""
@@ -138,6 +200,22 @@ class Planner:
             "serve ",
         ]
         return any(pattern in lowered for pattern in patterns)
+
+    def _is_executable_command(self, command: str) -> bool:
+        """Keep shell commands and drop natural-language verification notes."""
+        lowered = command.strip().lower()
+        executable_prefixes = (
+            "npm ",
+            "node ",
+            "python ",
+            "pytest",
+            "npx ",
+            "uv ",
+            "pnpm ",
+            "yarn ",
+            "bun ",
+        )
+        return lowered.startswith(executable_prefixes)
 
     def _generate_llm_spec(
         self,
@@ -157,28 +235,71 @@ class Planner:
             f"GLOBAL_CONSTRAINTS.md:\n{constraints or '[missing]'}",
             "Return only JSON matching the provided FEATURE_SPEC schema.",
         ])
+        schema = FeatureSpec.model_json_schema()
         data = self.llm_backend.generate_json(
             instructions=instructions,
             prompt=prompt,
-            schema=FeatureSpec.model_json_schema(),
+            schema=schema,
         )
-        try:
-            return FeatureSpec(**data)
-        except ValidationError as error:
-            repair_prompt = "\n\n".join([
-                "The previous planner response did not match the required FEATURE_SPEC schema.",
-                f"Validation error:\n{error}",
-                f"Invalid response JSON:\n{json.dumps(data, ensure_ascii=False, indent=2)}",
-                "Return one complete FEATURE_SPEC JSON object with top-level keys: "
-                "project_goal, non_goals, assumptions, features, sprints.",
-                prompt,
-            ])
-            repaired = self.llm_backend.generate_json(
-                instructions=instructions,
-                prompt=repair_prompt,
-                schema=FeatureSpec.model_json_schema(),
-            )
-            return FeatureSpec(**repaired)
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                return self._validate_feature_spec_data(data)
+            except (ValidationError, ValueError) as error:
+                last_error = error
+                repair_prompt = "\n\n".join([
+                    "The previous planner response did not match the required FEATURE_SPEC schema.",
+                    f"Repair attempt: {attempt + 1} of 3",
+                    f"Validation error:\n{error}",
+                    f"Invalid response JSON:\n{json.dumps(data, ensure_ascii=False, indent=2)}",
+                    "Return one complete FEATURE_SPEC JSON object only.",
+                    "The top-level JSON object must include exactly this shape:",
+                    json.dumps({
+                        "project_goal": "string",
+                        "non_goals": ["string"],
+                        "assumptions": ["string"],
+                        "features": [{
+                            "id": "F001",
+                            "title": "string",
+                            "user_value": "string",
+                            "dependencies": [],
+                            "risk": "low|medium|high",
+                            "estimated_files": ["repo-relative file path"],
+                            "acceptance_criteria": [{
+                                "id": "AC001",
+                                "description": "observable behavior",
+                                "verification_type": "unit|integration|e2e|api|db|log|static_check",
+                                "oracle": "specific pass condition",
+                                "required_evidence": ["command_output"],
+                            }],
+                            "definition_of_done": ["string"],
+                        }],
+                        "sprints": [{
+                            "id": "S001",
+                            "goal": "string",
+                            "features": ["F001"],
+                            "max_files_to_touch": 8,
+                            "must_not_touch": [".git/**", ".harness/**"],
+                            "verification_commands": ["npm test"],
+                            "rollback_strategy": "string",
+                        }],
+                    }, ensure_ascii=False, indent=2),
+                    "Do not return JSON Schema fragments such as $ref, $defs, properties, or type.",
+                    prompt,
+                ])
+                data = self.llm_backend.generate_json(
+                    instructions=instructions,
+                    prompt=repair_prompt,
+                    schema=schema,
+                )
+        raise ValueError(f"Planner LLM did not return a valid FEATURE_SPEC after repairs: {last_error}")
+
+    def _validate_feature_spec_data(self, data: dict) -> FeatureSpec:
+        """Reject schema fragments and validate a complete feature spec."""
+        schema_fragment_keys = {"$ref", "$defs", "properties", "type"}
+        if schema_fragment_keys.intersection(data) and "project_goal" not in data:
+            raise ValueError("Planner returned a JSON Schema fragment instead of FEATURE_SPEC data.")
+        return FeatureSpec(**data)
 
     def _generate_placeholder_spec(self, user_task: str) -> FeatureSpec:
         """Generate a conservative deterministic feature spec."""
@@ -268,7 +389,7 @@ class Planner:
             "src/styles.css",
             "scripts/validate-app.mjs",
             "scripts/browser-e2e.mjs",
-            "tests/todo.spec.mjs",
+            "tests/acceptance.spec.mjs",
         ]:
             if (self.repo_root / path).exists():
                 candidates.append(path)
@@ -348,3 +469,4 @@ class Planner:
         ledger = build_ledger_from_spec(spec)
         save_ledger(ledger, harness_dir / "FEATURE_LEDGER.json")
         write_progress_markdown(ledger, harness_dir / "PROGRESS.md")
+

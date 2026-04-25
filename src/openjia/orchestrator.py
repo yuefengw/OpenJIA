@@ -103,9 +103,10 @@ class HarnessOrchestrator:
         """
         harness_dir = self.repo_root / ".harness"
 
-        bootstrapped = self.bootstrapper.maybe_bootstrap(user_task)
+        bootstrap_mode = "generic_web"
+        bootstrapped = self.bootstrapper.maybe_bootstrap(user_task, mode=bootstrap_mode)
         if bootstrapped:
-            print("Bootstrapped a minimal static web project.")
+            print(f"Bootstrapped project runtime ({bootstrap_mode}).")
 
         # Phase 0: Initialize
         print("=== Phase 0: Initialization ===")

@@ -4,6 +4,31 @@ All notable project changes and verification results should be recorded here aft
 
 ## 2026-04-25
 
+### General Harness Refactor
+
+- Split web bootstrapping into deterministic `static_web` and LLM-owned `generic_web` modes.
+- DeepAgents runs now bootstrap only runtime files and leave business/app files to Planner and Generator.
+- Planner now adds creatable web files for web goals and canonicalizes common root assets like `app.js` / `style.css` to `src/app.js` / `src/styles.css`.
+- Evaluator now judges each acceptance criterion independently instead of marking every AC pass when commands pass.
+- Evaluator now rejects generic browser smoke artifacts as evidence for specific interaction criteria such as drag, filter, add, complete, delete, and persistence.
+- Generic browser E2E now detects common CRUD-style pages and performs add, optional complete, refresh/persistence, and delete interactions.
+- Browser E2E now uses an OS temp Chrome profile and cleans it up best-effort to avoid polluting generated projects with `.tmp-chrome-profile`.
+- DeepAgents backend no longer passes complex `$defs` schemas as SDK `response_format`; it now relies on the JSON-only prompt path for nested role schemas.
+- Planner schema repair now rejects `$ref` / JSON Schema fragments and retries until it receives a complete `FEATURE_SPEC` object.
+- DeepAgents web contracts now protect runtime/evaluator scaffold files (`package.json`, `playwright.config.mjs`, `scripts/validate-app.mjs`, `scripts/browser-e2e.mjs`) from Generator writes.
+- Removed the runtime Todo List deterministic template from the bootstrapper/generator path.
+- Deterministic web fallback now creates a generic static app shell instead of Todo-specific files.
+- Generic browser E2E now uses a reusable CRUD interaction probe and writes `crud-interactions.*` evidence instead of Todo-specific artifacts.
+- Added regression coverage for generic scaffold ownership, planner file normalization, and evaluator false-positive prevention.
+
+### Verified
+
+- `pytest -q` passed: 86 tests.
+- In-memory Python source compilation passed for 63 files.
+- `openjia llm-smoke --llm-backend deepagents --model MiniMax-M2.7` passed.
+- DeepAgents one-sprint Todo run completed with `generic_web` bootstrap, Generator-owned business files only, protected scaffold files untouched, and `EVAL_REPORT.json.overall_status == "pass"`.
+- Post-refactor hard-code audit: no Todo List business template remains in `src`; remaining Todo mentions are tests/docs/examples only.
+
 ### DeepAgents SDK Runtime
 
 - Added optional `deepagents` and `all` dependency extras.
@@ -25,6 +50,9 @@ All notable project changes and verification results should be recorded here aft
 - Targeted DeepAgents/Planner tests passed: 6 tests.
 - Full `pytest -q` passed: 80 tests.
 - `openjia llm-smoke --llm-backend minimax --model MiniMax-M2.7` passed.
+- Fixed Planner command normalization so natural-language verification notes are not executed as shell commands.
+- Fixed browser E2E script to tolerate animated delete flows and report CDP browser exceptions clearly.
+- Verified the generated `D:\Project\testOpenJia` app with `npm run build` and `npm run test:e2e`.
 
 ### OpenJIA Rename
 

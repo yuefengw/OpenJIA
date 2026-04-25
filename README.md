@@ -2,7 +2,7 @@
 
 OpenJIA is a harness system for long-running software development agents. It is built around a planner-generator-evaluator loop, with artifact-gated execution, scoped context, external evaluation, repair packets, and durable progress state.
 
-The current implementation can run a short task such as a Todo List website through a minimal end-to-end flow: bootstrap a static web app, generate files, run self-verification, execute browser checks, write evidence, and update harness artifacts.
+The current implementation can run a short task through a minimal end-to-end flow: bootstrap a generic web runtime, plan scoped work, generate files, run self-verification, execute browser checks, write evidence, and update harness artifacts.
 
 ## Architecture
 
@@ -89,15 +89,15 @@ openjia init .
 Plan only:
 
 ```powershell
-openjia plan "Build a runnable Todo List website" . --llm-backend minimax --model MiniMax-M2.7
+openjia plan "Build a small portfolio website" . --llm-backend minimax --model MiniMax-M2.7
 ```
 
-Run the current end-to-end static web flow:
+Run the current end-to-end web flow:
 
 ```powershell
-$target = "$env:TEMP\openjia-demo-todo"
+$target = "$env:TEMP\openjia-demo-site"
 New-Item -ItemType Directory -Force $target
-openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" $target
+openjia run "Build a small portfolio website with a projects section and contact call to action" $target --llm-backend deepagents --model MiniMax-M2.7 --max-sprints 1
 ```
 
 Run the generated app:
@@ -118,12 +118,12 @@ http://localhost:5173
 - MiniMax/OpenAI-compatible LLM planner.
 - DeepAgents SDK runtime backend via `--llm-backend deepagents`.
 - LLM generator interface with structured file outputs.
-- Deterministic fallback generator for simple static Todo/web tasks.
+- Generic deterministic fallback for simple static web scaffolds.
 - Guarded file writes constrained by `CONTRACT.yaml`.
 - Feature ledger and progress tracking.
 - Command logs under `.harness/logs/commands.jsonl`.
-- Browser E2E verification for generated Todo apps.
-- Screenshot evidence such as `test-results/todo-pass.png`.
+- Browser smoke verification and generic CRUD interaction probes when the page exposes matching controls.
+- Evidence such as `test-results/page-smoke.html` and `test-results/crud-interactions.txt`.
 
 ## Current Limits
 

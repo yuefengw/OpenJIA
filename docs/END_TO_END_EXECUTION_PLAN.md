@@ -1,14 +1,14 @@
-# End-to-End Execution Plan
+﻿# End-to-End Execution Plan
 
 Goal: after the harness is fully implemented, a user should be able to type a short task such as:
 
 ```bash
-openjia run "Build a runnable Todo List website" --llm-backend minimax
+openjia run "Build a small portfolio website" --llm-backend deepagents
 ```
 
 and receive a runnable implementation with traceable planning, scoped generation, command evidence, evaluation, and repair artifacts under `.harness/`.
 
-This plan is not tied to Todo List. Todo List is the first acceptance fixture because it is small, visual, testable, and representative of common app-building requests.
+This plan is not tied to any single fixture. Older milestones used Todo List as an acceptance fixture because it is small, visual, and testable; the runtime path now uses generic scaffolds and LLM-owned task implementation.
 
 ## Current Reality
 
@@ -20,24 +20,24 @@ What works now:
 - Feature ledger and progress artifacts are written.
 - PlanFeasibilityGate, ContractGate, SelfVerifyGate, EvaluationGate, and command logging exist.
 - Evaluator can run shell commands and write command evidence.
-- Empty simple web tasks can bootstrap a dependency-light static web app.
-- Deterministic Generator can create a runnable Todo List app inside contract scope.
+- Empty simple web tasks can bootstrap a dependency-light generic web runtime.
+- Deterministic Generator can create a generic static web shell inside contract scope.
 - Generator runs required commands and writes real self-verification logs.
-- Browser E2E opens the generated Todo app and verifies add, complete, delete, and refresh persistence behavior.
-- Evaluator collects evidence such as `test-results/todo-pass.png`.
+- Browser E2E opens the generated app, performs smoke verification, and runs a generic CRUD interaction probe when matching controls exist.
+- Evaluator collects evidence such as `test-results/page-smoke.html` and `test-results/crud-interactions.txt`.
 
 What does not yet work:
 
 - General-purpose DeepAgents generation is now available, but direct tool-use integration is still experimental.
 - Repair loop does not persist repeated failure fingerprints or perform root-cause escalation.
-- `openjia run` can create and verify the first static Todo app path, but does not yet start a persistent dev server or print a final URL.
+- `openjia run` can create and verify simple static web app paths, but does not yet start a persistent dev server or print a final URL.
 
 ## Target User Flow
 
 1. User runs:
 
    ```bash
-   openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" --llm-backend minimax
+   openjia run "Build a small portfolio website with a projects section and contact call to action" --llm-backend deepagents
    ```
 
 2. Initializer creates `.harness/` and detects whether the target directory is empty, Python, JS, TS, Vite, React, or another supported stack.
@@ -82,7 +82,7 @@ Status: complete for simple static web tasks.
 
 Acceptance:
 
-- Empty temp directory plus `openjia run "Build a runnable Todo List website"` produces app files.
+- Empty temp directory plus `openjia run "Build a small portfolio website"` produces app files.
 - `npm run build` and browser checks are discoverable.
 - Existing projects are not overwritten without contract scope.
 
@@ -108,11 +108,11 @@ Acceptance:
 
 ### Milestone 5: Browser Evaluator for Web Apps
 
-Status: complete for Todo fixture.
+Status: complete for generic smoke checks and common CRUD-style interactions.
 
 Acceptance:
 
-- Evaluator catches a UI that builds but cannot add a todo.
+- Evaluator catches a UI that builds but cannot satisfy required interaction evidence.
 - Evaluator catches missing persistence when required.
 - Evidence includes screenshot, command output, and log index paths.
 
@@ -138,28 +138,28 @@ Acceptance:
 Fixture command:
 
 ```bash
-openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" --llm-backend minimax
+openjia run "Build a small portfolio website with a projects section and contact call to action" --llm-backend minimax
 ```
 
 DeepAgents runtime fixture:
 
 ```bash
-openjia run "Build a runnable Todo List website with add, complete, delete, and persistence after refresh" --llm-backend deepagents --model MiniMax-M2.7
+openjia run "Build a small portfolio website with a projects section and contact call to action" --llm-backend deepagents --model MiniMax-M2.7
 ```
 
 Expected features:
 
-- Add todo
-- Mark todo complete/incomplete
-- Delete todo
-- Persist todos after refresh
-- Responsive usable page
+- Render the requested page content
+- Include project cards or sections
+- Include a contact call to action
+- Remain usable on desktop and mobile
 
 Expected verification:
 
 - `npm run build`
 - unit/static test
-- browser add/toggle/delete/refresh test
+- browser smoke test
+- generated acceptance test when available
 - console log check
 - screenshot evidence
 
@@ -168,3 +168,4 @@ Success condition:
 - `EVAL_REPORT.json.overall_status == "pass"`
 - all feature ledger acceptance criteria are `pass`
 - final report contains app run instructions
+

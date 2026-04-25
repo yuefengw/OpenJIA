@@ -1,25 +1,28 @@
-"""Project bootstrapper for simple runnable application tasks."""
+﻿"""Project bootstrapper for simple runnable application tasks."""
 
 from pathlib import Path
 
 
 class ProjectBootstrapper:
-    """Create a minimal app skeleton when a target directory has no app yet."""
+    """Create minimal runnable scaffolds when a target directory has no app yet."""
 
-    WEB_KEYWORDS = ("todo", "待办", "网站", "网页", "web", "app", "应用")
+    WEB_KEYWORDS = ("网站", "网页", "web", "app", "应用")
 
     def __init__(self, repo_root: str):
         self.repo_root = Path(repo_root)
 
-    def maybe_bootstrap(self, user_task: str) -> bool:
-        """Bootstrap a static web app if the directory has no recognizable app."""
+    def maybe_bootstrap(self, user_task: str, mode: str = "static_web") -> bool:
+        """Bootstrap a web runtime if the directory has no recognizable app."""
         if not self._looks_like_web_task(user_task):
             return False
         if self._has_existing_app():
             return False
 
-        self._write_static_web_skeleton()
-        self._write_report(user_task)
+        if mode == "generic_web":
+            self._write_generic_web_scaffold()
+        else:
+            self._write_static_web_skeleton()
+        self._write_report(user_task, mode)
         return True
 
     def _looks_like_web_task(self, user_task: str) -> bool:
@@ -33,45 +36,59 @@ class ProjectBootstrapper:
         )
 
     def _write_static_web_skeleton(self) -> None:
+        """Backward-compatible alias for the generic runtime scaffold."""
+        self._write_generic_web_scaffold()
+
+    def _write_generic_web_scaffold(self) -> None:
+        """Write runtime files only; Planner/Generator own app code."""
         files = {
             "package.json": _PACKAGE_JSON,
-            "index.html": _INDEX_HTML,
             "playwright.config.mjs": _PLAYWRIGHT_CONFIG,
-            "src/app.js": _APP_JS,
-            "src/styles.css": _STYLES_CSS,
-            "scripts/validate-app.mjs": _VALIDATE_APP,
-            "scripts/browser-e2e.mjs": _BROWSER_E2E,
-            "tests/todo.spec.mjs": _TODO_SPEC,
+            "scripts/validate-app.mjs": _GENERIC_VALIDATE_APP,
+            "scripts/browser-e2e.mjs": _GENERIC_BROWSER_E2E,
         }
+        self._write_files(files)
+
+    def _write_files(self, files: dict[str, str]) -> None:
         for path, content in files.items():
             target = self.repo_root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-    def _write_report(self, user_task: str) -> None:
+    def _write_report(self, user_task: str, mode: str) -> None:
         harness_dir = self.repo_root / ".harness"
         harness_dir.mkdir(parents=True, exist_ok=True)
+        if mode == "generic_web":
+            summary = "Created a generic web runtime scaffold. Business files are left to Planner/Generator."
+            files = [
+                "package.json",
+                "playwright.config.mjs",
+                "scripts/validate-app.mjs",
+                "scripts/browser-e2e.mjs",
+            ]
+        else:
+            summary = "Created a dependency-light generic web runtime scaffold."
+            files = [
+                "package.json",
+                "playwright.config.mjs",
+                "scripts/validate-app.mjs",
+                "scripts/browser-e2e.mjs",
+            ]
         (harness_dir / "BOOTSTRAP_REPORT.md").write_text(
             "\n".join([
                 "# Bootstrap Report",
                 "",
                 f"User task: {user_task}",
                 "",
-                "Created a dependency-light static web app skeleton.",
+                f"Mode: {mode}",
+                "",
+                summary,
                 "",
                 "## Files",
-                "- package.json",
-                "- index.html",
-                "- playwright.config.mjs",
-                "- src/app.js",
-                "- src/styles.css",
-                "- scripts/validate-app.mjs",
-                "- scripts/browser-e2e.mjs",
-                "- tests/todo.spec.mjs",
+                *[f"- {path}" for path in files],
             ]),
             encoding="utf-8",
         )
-
 
 _PACKAGE_JSON = """{
   "name": "openjia-generated-app",
@@ -88,256 +105,32 @@ _PACKAGE_JSON = """{
 }
 """
 
-_INDEX_HTML = """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Todo List</title>
-    <link rel="stylesheet" href="src/styles.css" />
-  </head>
-  <body>
-    <main class="app-shell">
-      <section class="todo-panel" aria-labelledby="app-title">
-        <header>
-          <p class="eyebrow">Local Tasks</p>
-          <h1 id="app-title">Todo List</h1>
-        </header>
-        <form id="todo-form" class="todo-form">
-          <input id="todo-input" type="text" autocomplete="off" placeholder="Add a todo item" />
-          <button type="submit">Add</button>
-        </form>
-        <ul id="todo-list" class="todo-list" aria-label="Todo list"></ul>
-        <p id="empty-state" class="empty-state">No todo items yet.</p>
-      </section>
-    </main>
-    <script type="module" src="src/app.js"></script>
-  </body>
-</html>
-"""
+_GENERIC_VALIDATE_APP = """import { existsSync, readFileSync } from 'node:fs';
 
-_APP_JS = """const STORAGE_KEY = 'openjia.todo.items';
-
-const form = document.querySelector('#todo-form');
-const input = document.querySelector('#todo-input');
-const list = document.querySelector('#todo-list');
-const emptyState = document.querySelector('#empty-state');
-
-function loadTodos() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveTodos(todos) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
-}
-
-let todos = loadTodos();
-
-function render() {
-  list.innerHTML = '';
-  emptyState.hidden = todos.length > 0;
-
-  for (const todo of todos) {
-    const item = document.createElement('li');
-    item.className = todo.completed ? 'todo-item is-complete' : 'todo-item';
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'todo-toggle';
-    toggle.setAttribute('aria-label', todo.completed ? 'Mark as incomplete' : 'Mark as complete');
-    toggle.textContent = todo.completed ? 'Done' : '';
-    toggle.addEventListener('click', () => {
-      todos = todos.map((entry) =>
-        entry.id === todo.id ? { ...entry, completed: !entry.completed } : entry
-      );
-      saveTodos(todos);
-      render();
-    });
-
-    const label = document.createElement('span');
-    label.className = 'todo-label';
-    label.textContent = todo.text;
-
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'todo-remove';
-    remove.textContent = 'Delete';
-    remove.addEventListener('click', () => {
-      todos = todos.filter((entry) => entry.id !== todo.id);
-      saveTodos(todos);
-      render();
-    });
-
-    item.append(toggle, label, remove);
-    list.append(item);
-  }
-}
-
-form.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
-
-  todos = [{ id: crypto.randomUUID(), text, completed: false }, ...todos];
-  input.value = '';
-  saveTodos(todos);
-  render();
-});
-
-render();
-"""
-
-_STYLES_CSS = """:root {
-  color-scheme: light;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f4f6f8;
-  color: #17202a;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-}
-
-.app-shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 32px 16px;
-}
-
-.todo-panel {
-  width: min(720px, 100%);
-  background: #ffffff;
-  border: 1px solid #d7dde4;
-  border-radius: 8px;
-  padding: 28px;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: #50708f;
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0 0 24px;
-  font-size: 34px;
-}
-
-.todo-form {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-}
-
-input,
-button {
-  min-height: 44px;
-  border-radius: 6px;
-  font: inherit;
-}
-
-input {
-  border: 1px solid #bdc8d4;
-  padding: 0 14px;
-}
-
-button {
-  border: 0;
-  background: #1f7a5a;
-  color: white;
-  padding: 0 16px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.todo-list {
-  list-style: none;
-  padding: 0;
-  margin: 22px 0 0;
-  display: grid;
-  gap: 10px;
-}
-
-.todo-item {
-  display: grid;
-  grid-template-columns: 34px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 50px;
-  border: 1px solid #d7dde4;
-  border-radius: 6px;
-  padding: 8px;
-}
-
-.todo-toggle {
-  width: 64px;
-  min-height: 34px;
-  padding: 0;
-  background: #e6f2ee;
-  color: #1f7a5a;
-  border: 1px solid #9bc8b9;
-}
-
-.todo-label {
-  overflow-wrap: anywhere;
-}
-
-.is-complete .todo-label {
-  color: #6b7886;
-  text-decoration: line-through;
-}
-
-.todo-remove {
-  background: #9f2d36;
-}
-
-.empty-state {
-  margin: 20px 0 0;
-  color: #6b7886;
-}
-
-@media (max-width: 560px) {
-  .todo-form {
-    grid-template-columns: 1fr;
-  }
-}
-"""
-
-_VALIDATE_APP = """import { readFileSync } from 'node:fs';
-
-const requiredFiles = ['index.html', 'src/app.js', 'src/styles.css', 'playwright.config.mjs', 'tests/todo.spec.mjs'];
+const requiredFiles = ['index.html'];
 for (const file of requiredFiles) {
-  readFileSync(file, 'utf8');
+  if (!existsSync(file)) {
+    console.error(`Missing required app file: ${file}`);
+    process.exit(1);
+  }
 }
 
 const html = readFileSync('index.html', 'utf8');
-const js = readFileSync('src/app.js', 'utf8');
-const spec = readFileSync('tests/todo.spec.mjs', 'utf8');
-
 const checks = [
-  ['title', html.includes('Todo List')],
-  ['form', html.includes('todo-form')],
-  ['list', html.includes('todo-list')],
-  ['localStorage persistence', js.includes('localStorage')],
-  ['add handler', js.includes("addEventListener('submit'")],
-  ['toggle behavior', js.includes('completed: !entry.completed')],
-  ['delete behavior', js.includes('todos.filter')],
-  ['playwright add assertion', spec.includes("getByRole('button', { name: 'Add' })")],
-  ['playwright persistence assertion', spec.includes('page.reload()')],
+  ['doctype/html shell', /<html[\\s>]/i.test(html)],
+  ['body content', /<body[\\s>]/i.test(html)],
+  ['script or inline behavior', html.includes('<script') || existsSync('src/app.js')],
 ];
+
+if (existsSync('src/app.js')) {
+  const js = readFileSync('src/app.js', 'utf8');
+  checks.push(['non-empty app script', js.trim().length > 0]);
+}
+
+if (existsSync('src/styles.css')) {
+  const css = readFileSync('src/styles.css', 'utf8');
+  checks.push(['non-empty stylesheet', css.trim().length > 0]);
+}
 
 const failed = checks.filter(([, ok]) => !ok);
 if (failed.length > 0) {
@@ -345,19 +138,27 @@ if (failed.length > 0) {
   process.exit(1);
 }
 
-console.log('Static Todo app validation passed.');
+console.log('Generic web app validation passed.');
 """
 
-_BROWSER_E2E = r"""import { mkdirSync, writeFileSync } from 'node:fs';
+_GENERIC_BROWSER_E2E = r"""import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 
 const root = process.cwd();
 const port = 5173;
 const baseURL = `http://127.0.0.1:${port}`;
 const chromePath = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromeProfile = mkdtempSync(`${tmpdir()}/openjia-chrome-`);
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function cleanupChromeProfile() {
+  try {
+    rmSync(chromeProfile, { recursive: true, force: true });
+  } catch {}
 }
 
 async function waitForServer() {
@@ -389,7 +190,6 @@ cdp.pending = new Map();
 
 async function run() {
   mkdirSync('test-results', { recursive: true });
-
   const server = spawn('python', ['-m', 'http.server', String(port)], { cwd: root });
   await waitForServer();
 
@@ -397,7 +197,7 @@ async function run() {
     '--headless=new',
     '--disable-gpu',
     '--remote-debugging-port=9222',
-    '--user-data-dir=' + root + '/.tmp-chrome-profile',
+    '--user-data-dir=' + chromeProfile,
     'about:blank',
   ]);
 
@@ -433,51 +233,110 @@ async function run() {
     await cdp('Page.navigate', { url: baseURL });
     await wait(1000);
 
-    const expression = `(() => {
-      localStorage.clear();
-      location.reload();
-      return true;
-    })()`;
-    await cdp('Runtime.evaluate', { expression, awaitPromise: true });
-    await wait(1000);
-
-    const testExpression = `(() => {
-      const input = document.querySelector('#todo-input');
-      const form = document.querySelector('#todo-form');
-      input.value = 'Write harness tests';
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      let item = document.querySelector('.todo-item');
-      if (!item || !item.textContent.includes('Write harness tests')) throw new Error('todo was not added');
-      item.querySelector('.todo-toggle').click();
-      item = document.querySelector('.todo-item');
-      if (!item.classList.contains('is-complete')) throw new Error('todo was not completed');
-      location.reload();
-      return true;
-    })()`;
-    await cdp('Runtime.evaluate', { expression: testExpression, awaitPromise: true });
-    await wait(1000);
-
-    const persistenceExpression = `(() => {
-      const item = document.querySelector('.todo-item');
-      if (!item || !item.textContent.includes('Write harness tests')) throw new Error('todo did not persist');
-      if (!item.classList.contains('is-complete')) throw new Error('completed state did not persist');
-      item.querySelector('.todo-remove').click();
-      if (document.querySelectorAll('.todo-item').length !== 0) throw new Error('todo was not deleted');
-      if (!document.querySelector('#empty-state') || document.querySelector('#empty-state').hidden) throw new Error('empty state not visible');
-      return document.documentElement.outerHTML;
-    })()`;
-    const result = await cdp('Runtime.evaluate', {
-      expression: persistenceExpression,
+    const smoke = await cdp('Runtime.evaluate', {
+      expression: `(() => {
+        const text = document.body?.innerText || '';
+        if (!document.body || text.trim().length === 0) throw new Error('page body is empty');
+        return document.documentElement.outerHTML;
+      })()`,
       awaitPromise: true,
       returnByValue: true,
     });
-    writeFileSync('test-results/todo-pass.html', result.result.value);
-    writeFileSync('test-results/todo-pass.png', 'browser e2e passed');
-    console.log('Browser Todo E2E passed.');
+    if (smoke.exceptionDetails) {
+      throw new Error(smoke.exceptionDetails.text || 'browser evaluation failed');
+    }
+    const html = smoke.result?.value;
+    if (typeof html !== 'string') {
+      throw new Error('browser evaluation did not return HTML evidence');
+    }
+    writeFileSync('test-results/page-smoke.html', html);
+
+    const interactionProbe = await cdp('Runtime.evaluate', {
+      expression: `(() => {
+        const inputs = [...document.querySelectorAll('input, textarea')];
+        const buttons = [...document.querySelectorAll('button')];
+        const text = document.body.innerText.toLowerCase();
+        return {
+          hasTextInput: inputs.some((input) => !input.type || ['text', 'search', ''].includes(input.type)),
+          hasAddButton: buttons.some((button) => /add|new|create|新增|添加/i.test(button.innerText || button.ariaLabel || '')),
+          mentionsEntity: /item|task|entry|record|note|事项|任务|条目/.test(text),
+        };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const crudLike = Boolean(interactionProbe.result?.value?.hasTextInput && (interactionProbe.result?.value?.hasAddButton || interactionProbe.result?.value?.mentionsEntity));
+
+    if (crudLike) {
+      const addResult = await cdp('Runtime.evaluate', {
+        expression: `(async () => {
+          localStorage.clear();
+          const input = document.querySelector('input[type="text"], input:not([type]), textarea, input[type="search"]');
+          if (!input) throw new Error('text input not found');
+          input.value = 'OpenJIA interaction test';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          const addButton = [...document.querySelectorAll('button')]
+            .find((button) => /add|new|create|新增|添加/i.test(button.innerText || button.ariaLabel || ''));
+          if (addButton) addButton.click();
+          else input.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (!document.body.innerText.includes('OpenJIA interaction test')) throw new Error('item add failed');
+
+          const item = [...document.querySelectorAll('li, [data-testid], .item, .task-item, .entry, .record, article, div')]
+            .find((node) => node.innerText?.includes('OpenJIA interaction test'));
+          if (!item) throw new Error('created item not found after add');
+          const completeButton = [...item.querySelectorAll('button, input[type="checkbox"]')]
+            .find((node) => /complete|done|finish|完成|check|mark/i.test(node.innerText || node.ariaLabel || node.title || node.className || node.type || ''));
+          if (completeButton) {
+            completeButton.click();
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          }
+          return true;
+        })()`,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      if (addResult.exceptionDetails) {
+        throw new Error(addResult.exceptionDetails.text || 'item add/complete evaluation failed');
+      }
+
+      await cdp('Page.reload', { ignoreCache: true });
+      await wait(1000);
+
+      const interactionResult = await cdp('Runtime.evaluate', {
+        expression: `(async () => {
+          if (!document.body.innerText.includes('OpenJIA interaction test')) throw new Error('item persistence failed after refresh');
+
+          const persisted = [...document.querySelectorAll('li, [data-testid], .item, .task-item, .entry, .record, article, div')]
+            .find((node) => node.innerText?.includes('OpenJIA interaction test'));
+          if (!persisted) throw new Error('persisted item not found after refresh');
+          const deleteButton = [...(persisted || document).querySelectorAll('button')]
+            .find((button) => /delete|remove|clear|删除|移除/i.test(button.innerText || button.ariaLabel || button.title || button.className || ''));
+          if (!deleteButton) throw new Error('delete control not found');
+          deleteButton.click();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (document.body.innerText.includes('OpenJIA interaction test')) throw new Error('item delete failed');
+          return document.documentElement.outerHTML;
+        })()`,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      if (interactionResult.exceptionDetails) {
+        throw new Error(interactionResult.exceptionDetails.text || 'interaction evaluation failed');
+      }
+      writeFileSync('test-results/crud-interactions.html', interactionResult.result?.value || '');
+      writeFileSync('test-results/crud-interactions.txt', 'crud add optional-complete persist refresh delete interaction e2e passed');
+      console.log('CRUD interaction E2E passed: add, optional complete, persist, refresh, delete.');
+    } else {
+      writeFileSync('test-results/page-smoke.txt', 'generic browser smoke passed');
+      console.log('Generic browser smoke passed.');
+    }
   } finally {
     cdp.socket?.close();
     chrome.kill();
     server.kill();
+    cleanupChromeProfile();
   }
 }
 
@@ -507,32 +366,6 @@ export default defineConfig({
 });
 """
 
-_TODO_SPEC = """import { test, expect } from '@playwright/test';
 
-test('todo list supports add, complete, delete, and persistence', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
 
-  await expect(page.getByText('No todo items yet.')).toBeVisible();
 
-  await page.getByPlaceholder('Add a todo item').fill('Write harness tests');
-  await page.getByRole('button', { name: 'Add' }).click();
-
-  const item = page.locator('.todo-item').filter({ hasText: 'Write harness tests' });
-  await expect(item).toBeVisible();
-
-  await item.getByRole('button', { name: 'Mark as complete' }).click();
-  await expect(item).toHaveClass(/is-complete/);
-
-  await page.reload();
-  const persisted = page.locator('.todo-item').filter({ hasText: 'Write harness tests' });
-  await expect(persisted).toBeVisible();
-  await expect(persisted).toHaveClass(/is-complete/);
-
-  await persisted.getByRole('button', { name: 'Delete' }).click();
-  await expect(page.locator('.todo-item')).toHaveCount(0);
-  await expect(page.getByText('No todo items yet.')).toBeVisible();
-  await page.screenshot({ path: 'test-results/todo-pass.png', fullPage: true });
-});
-"""
